@@ -148,6 +148,15 @@ class MemoryStore:
         else:
             return "\n\n".join([msg.content for msg in messages])
     
+    def get_history(self) -> List[Dict[str, Any]]:
+        """
+        获取完整历史（字典格式）
+        
+        Returns:
+            消息字典列表
+        """
+        return [msg.to_dict() for msg in self.messages]
+    
     def clear(self):
         """清空所有消息"""
         self.messages.clear()
@@ -159,4 +168,8 @@ class MemoryStore:
     def __len__(self) -> int:
         """返回消息数"""
         return len(self.messages)
+    
+    def get_full_context(self) -> str:
+        """获取完整上下文（别名，兼容旧接口）"""
+        return self.get_context_string()
 

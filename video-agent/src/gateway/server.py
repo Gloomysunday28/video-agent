@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import httpx
 import os
+import asyncio
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -66,8 +67,25 @@ app.include_router(api_router)
 try:
     from agent.api.video_generate import router as video_generate_router
     app.include_router(video_generate_router)
+    print("✅ 视频生成 API 已注册")
 except ImportError as e:
-    print(f"警告: 无法导入视频生成 API: {e}")
+    print(f"⚠️  警告: 无法导入视频生成 API: {e}")
+
+# 导入并注册视频识别 API
+try:
+    from agent.api.video_analysis import router as video_analysis_router
+    app.include_router(video_analysis_router)
+    print("✅ 视频识别 API 已注册")
+except ImportError as e:
+    print(f"⚠️  警告: 无法导入视频识别 API: {e}")
+
+# 导入并注册聊天 API
+try:
+    from agent.api.chat import router as chat_router
+    app.include_router(chat_router)
+    print("✅ 聊天 API 已注册")
+except ImportError as e:
+    print(f"⚠️  警告: 无法导入聊天 API: {e}")
 
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -82,6 +100,61 @@ VITE_DEV_SERVER = "http://localhost:5173"
 # HTTP 客户端（用于代理，禁用系统代理以访问本地 Vite 服务器）
 http_client = httpx.AsyncClient(trust_env=False)
 
+# 上下文清理器任务
+cleaner_task = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时执行"""
+    import logging
+    
+    # 配置日志
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 设置特定模块的日志级别
+    logging.getLogger('agent.tools.vision.video_analyzer').setLevel(logging.INFO)
+    logging.getLogger('agent.api.video_analysis').setLevel(logging.INFO)
+    
+    global cleaner_task
+    
+    print("🚀 启动 Video Agent 服务...")
+    
+    # 启动上下文清理器（30天清理，每24小时检查一次）
+    try:
+        from agent.context.cleaner import get_cleaner
+        cleaner = get_cleaner(max_age_days=30, cleanup_interval_hours=24)
+        
+        # 启动定期清理任务
+        cleaner_task = asyncio.create_task(cleaner.run_periodic_cleanup())
+        print("✅ 上下文清理器已启动 (30天清理策略)")
+    except Exception as e:
+        print(f"⚠️  警告: 上下文清理器启动失败: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时执行"""
+    global cleaner_task
+    
+    print("👋 关闭 Video Agent 服务...")
+    
+    # 关闭清理器任务
+    if cleaner_task:
+        cleaner_task.cancel()
+        try:
+            await cleaner_task
+        except asyncio.CancelledError:
+            pass
+        print("✅ 上下文清理器已关闭")
+    
+    # 关闭HTTP客户端
+    await http_client.aclose()
+
 
 if DEV_MODE:
     # 开发模式：代理到 Vite 开发服务器
@@ -90,6 +163,10 @@ if DEV_MODE:
         """
         开发模式：代理所有非 /api 请求到 Vite 开发服务器
         """
+        # 跳过 API 路由
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
         # 构建目标 URL
         target_url = f"{VITE_DEV_SERVER}/{full_path}"
         if request.url.query:

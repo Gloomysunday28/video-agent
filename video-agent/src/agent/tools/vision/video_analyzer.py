@@ -5,9 +5,12 @@
 
 import base64
 import httpx
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class VideoAnalyzer:
@@ -83,7 +86,15 @@ class VideoAnalyzer:
                 "error": str    # 错误信息（如果有）
             }
         """
+        logger.info("=" * 60)
+        logger.info("VideoAnalyzer.analyze_video 调用")
+        logger.info(f"入参 - video_path: {video_path}")
+        logger.info(f"入参 - task: {task}")
+        logger.info(f"入参 - custom_prompt: {custom_prompt}")
+        logger.info(f"配置 - model: {self.model}, base_url: {self.base_url}")
+        
         if not self.api_key or not self.base_url:
+            logger.error("视觉模型未配置")
             return {
                 "success": False,
                 "error": "视觉模型未配置"
@@ -91,10 +102,16 @@ class VideoAnalyzer:
         
         # Gemini模型支持原生视频分析
         if self._is_gemini_model():
-            return await self._analyze_video_gemini(video_path, task, custom_prompt)
+            logger.info("使用 Gemini 原生视频分析")
+            result = await self._analyze_video_gemini(video_path, task, custom_prompt)
         else:
             # 其他模型需要拆帧分析
-            return await self._analyze_video_with_frames(video_path, task, custom_prompt)
+            logger.info("使用视频拆帧分析")
+            result = await self._analyze_video_with_frames(video_path, task, custom_prompt)
+        
+        logger.info(f"VideoAnalyzer.analyze_video 出参: {result}")
+        logger.info("=" * 60)
+        return result
     
     async def _analyze_video_gemini(
         self,
@@ -104,19 +121,101 @@ class VideoAnalyzer:
     ) -> Dict[str, Any]:
         """使用Gemini原生视频分析"""
         try:
+            logger.info("-" * 60)
+            logger.info("_analyze_video_gemini 调用")
+            logger.info(f"入参 - video_path: {video_path}")
+            logger.info(f"入参 - task: {task}")
+            logger.info(f"入参 - custom_prompt: {custom_prompt}")
+            
             # 获取prompt
             if custom_prompt:
                 prompt = custom_prompt
             else:
                 prompt = self._get_prompt_for_task(task)
             
-            # 读取视频文件并编码为base64
-            video_data = self._read_video_file(video_path)
-            if not video_data:
-                return {
-                    "success": False,
-                    "error": f"无法读取视频文件: {video_path}"
-                }
+            logger.info(f"使用的 Prompt: {prompt[:200]}...")
+            
+            # 构建请求内容
+            is_url = video_path.startswith(('http://', 'https://'))
+            
+            if is_url:
+                # 直接使用 URL，不下载
+                logger.info(f"使用视频 URL: {video_path}")
+                video_url = video_path
+            else:
+                # 本地文件需要转 base64
+                logger.info(f"读取本地视频文件: {video_path}")
+                video_data = await self._read_video_file(video_path)
+                
+                if not video_data:
+                    error_msg = f"无法读取视频文件: {video_path}"
+                    logger.error(error_msg)
+                    return {
+                        "success": False,
+                        "error": error_msg,
+                        "model": self.model
+                    }
+                
+                logger.info(f"视频读取成功，base64 长度: {len(video_data)} 字符")
+                video_url = f"data:video/mp4;base64,{video_data}"
+            
+            # 构建请求体 - 使用 OpenAI 多模态格式
+            request_body = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": video_url
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 8000  # 增加到 8000，给视频分析足够的输出空间
+            }
+            
+            logger.info(f"API 请求 URL: {self.base_url}/v1/chat/completions")
+            
+            # 打印请求体
+            if video_url.startswith('data:'):
+                # base64 格式，简化显示
+                video_url_display = f"data:video/mp4;base64,<{len(video_url)} 字符>"
+            else:
+                # 直接 URL
+                video_url_display = video_url
+            
+            log_request_body = {
+                "model": request_body["model"],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt[:100] + "..."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": video_url_display
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "temperature": request_body["temperature"],
+                "max_tokens": request_body["max_tokens"]
+            }
+            logger.info(f"API 请求体 (简化): {log_request_body}")
             
             # 构建请求
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -126,55 +225,91 @@ class VideoAnalyzer:
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json"
                     },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": prompt
-                                    },
-                                    {
-                                        "type": "video",
-                                        "video": {
-                                            "data": video_data,
-                                            "format": "base64"
-                                        }
-                                    }
-                                ]
-                            }
-                        ],
-                        "temperature": 0.7,
-                        "max_tokens": 1000
-                    }
+                    json=request_body
                 )
+                
+                logger.info(f"API 响应状态码: {response.status_code}")
+                logger.info(f"API 响应内容: {response.text}")
                 
                 if response.status_code == 200:
                     result = response.json()
-                    content = result["choices"][0]["message"]["content"]
+                    logger.info(f"解析后的 JSON 对象: {result}")
                     
-                    return {
+                    # 检查响应结构
+                    if "choices" not in result:
+                        error_msg = f"API 响应缺少 'choices' 字段: {result}"
+                        logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg,
+                            "model": self.model
+                        }
+                    
+                    if not result["choices"]:
+                        error_msg = f"API 响应 'choices' 为空: {result}"
+                        logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg,
+                            "model": self.model
+                        }
+                    
+                    choice = result["choices"][0]
+                    logger.info(f"choice 对象: {choice}")
+                    
+                    # 检查 finish_reason
+                    finish_reason = choice.get("finish_reason")
+                    logger.info(f"finish_reason: {finish_reason}")
+                    
+                    message = choice.get("message", {})
+                    logger.info(f"message 对象: {message}")
+                    
+                    content = message.get("content")
+                    if not content:
+                        error_msg = f"API 响应缺少 'content' 字段, finish_reason: {finish_reason}, message: {message}, 完整响应: {result}"
+                        logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg,
+                            "model": self.model
+                        }
+                    
+                    logger.info(f"✓ 分析成功，结果长度: {len(content)} 字符")
+                    logger.info(f"内容预览: {content[:200]}...")
+                    
+                    return_value = {
                         "success": True,
                         "result": content,
                         "model": self.model,
                         "method": "native_video",
                         "task": task
                     }
+                    logger.info(f"_analyze_video_gemini 出参: {return_value}")
+                    logger.info("-" * 60)
+                    return return_value
                 else:
-                    return {
+                    error_msg = f"API错误: {response.status_code} - {response.text}"
+                    logger.error(f"✗ {error_msg}")
+                    return_value = {
                         "success": False,
-                        "error": f"API错误: {response.status_code} - {response.text}",
+                        "error": error_msg,
                         "model": self.model
                     }
+                    logger.info(f"_analyze_video_gemini 出参: {return_value}")
+                    logger.info("-" * 60)
+                    return return_value
                     
         except Exception as e:
-            return {
+            error_msg = f"分析失败: {str(e)}"
+            logger.exception(f"✗ {error_msg}")
+            return_value = {
                 "success": False,
-                "error": f"分析失败: {str(e)}",
+                "error": error_msg,
                 "model": self.model
             }
+            logger.info(f"_analyze_video_gemini 出参: {return_value}")
+            logger.info("-" * 60)
+            return return_value
     
     async def _analyze_video_with_frames(
         self,
@@ -191,16 +326,29 @@ class VideoAnalyzer:
             "method": "frame_extraction"
         }
     
-    def _read_video_file(self, video_path: str) -> Optional[str]:
-        """读取视频文件并编码为base64"""
+    async def _read_video_file(self, video_path: str) -> Optional[str]:
+        """读取视频文件并编码为base64（支持本地文件和URL）"""
         try:
-            path = Path(video_path)
-            if not path.exists():
-                return None
-            
-            with open(path, 'rb') as f:
-                video_bytes = f.read()
-                return base64.b64encode(video_bytes).decode('utf-8')
+            # 检查是否为URL
+            if video_path.startswith(('http://', 'https://')):
+                # 从URL下载视频
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(video_path)
+                    if response.status_code == 200:
+                        video_bytes = response.content
+                        return base64.b64encode(video_bytes).decode('utf-8')
+                    else:
+                        print(f"下载视频失败: HTTP {response.status_code}")
+                        return None
+            else:
+                # 读取本地文件
+                path = Path(video_path)
+                if not path.exists():
+                    return None
+                
+                with open(path, 'rb') as f:
+                    video_bytes = f.read()
+                    return base64.b64encode(video_bytes).decode('utf-8')
         except Exception as e:
             print(f"读取视频失败: {e}")
             return None

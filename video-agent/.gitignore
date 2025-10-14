@@ -1,5 +1,9 @@
 # From https://github.com/github/gitignore/blob/main/Python.gitignore 2025-07-30
 
+# Context data (persistent storage)
+src/agent/context/data/
+!src/agent/context/data/.gitignore
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

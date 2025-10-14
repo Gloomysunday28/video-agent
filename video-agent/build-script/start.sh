@@ -2,10 +2,16 @@
 # 同端口启动脚本 - 8000端口同时服务前端和后端
 
 echo "🚀 启动 Video Agent - 统一端口模式"
-cd "$(dirname "$0")"
+
+# 进入项目根目录
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo "📁 项目目录: $PROJECT_ROOT"
 
 # 确保依赖已安装
-echo "📦 安装依赖..."
+echo "📦 安装 Python 依赖..."
 pip install -e . -q
 
 # 在后台启动 Vite 开发服务器
@@ -13,7 +19,7 @@ echo "🎨 启动前端开发服务器（端口 5173）..."
 cd src/frame
 npm run dev > /tmp/vite.log 2>&1 &
 VITE_PID=$!
-cd ../..
+cd "$PROJECT_ROOT"
 
 # 等待 Vite 启动
 echo "⏳ 等待前端服务器启动..."

@@ -4,7 +4,13 @@
 set -e
 
 echo "🏗️  构建 Video Agent 生产环境..."
-cd "$(dirname "$0")"
+
+# 进入项目根目录
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo "📁 项目目录: $PROJECT_ROOT"
 
 # 构建前端
 echo "📦 构建 React 前端..."
@@ -14,7 +20,7 @@ npm run build
 echo "✅ 前端构建完成: src/frame/dist"
 
 # 返回根目录
-cd ../..
+cd "$PROJECT_ROOT"
 
 # 安装 Python 依赖
 echo "📦 安装 Python 依赖..."
@@ -24,7 +30,7 @@ echo ""
 echo "✅ 构建完成！"
 echo ""
 echo "启动生产服务器："
-echo "  python -m uvicorn gateway.server:app --host 0.0.0.0 --port 8000"
+echo "  cd src && python -m uvicorn gateway.server:app --host 0.0.0.0 --port 8000"
 echo ""
 echo "或者使用："
 echo "  cd src && python -m gateway.server"

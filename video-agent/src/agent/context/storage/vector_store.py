@@ -8,6 +8,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import hashlib
 from pathlib import Path
+import httpx
+import asyncio
 
 
 @dataclass
@@ -30,30 +32,69 @@ class VectorStore:
     支持向量检索和关键词检索
     """
     
-    def __init__(self, persist_path: Optional[str] = None):
+    def __init__(
+        self, 
+        persist_path: Optional[str] = None,
+        embedding_api_url: Optional[str] = None,
+        embedding_api_key: Optional[str] = None,
+        embedding_model: str = "text-embedding-3-small"
+    ):
         """
         初始化向量存储
         
         Args:
             persist_path: 持久化路径，为None则不持久化
+            embedding_api_url: Embedding API URL
+            embedding_api_key: Embedding API Key
+            embedding_model: Embedding 模型名称
         """
         self.items: List[ContextItem] = []
         self.persist_path = Path(persist_path) if persist_path else None
+        self.embedding_api_url = embedding_api_url
+        self.embedding_api_key = embedding_api_key
+        self.embedding_model = embedding_model
+        self.use_api_embedding = bool(embedding_api_url and embedding_api_key)
+        
+        if self.use_api_embedding:
+            print(f"[向量存储] 使用 API Embedding: {embedding_model}")
+        else:
+            print(f"[向量存储] 使用简化版 Embedding（字符频率）")
         
         if self.persist_path and self.persist_path.exists():
             self.load()
+            print(f"[向量存储] 从 {self.persist_path} 加载了 {len(self.items)} 条记录")
     
     def _generate_id(self, content: str) -> str:
         """生成内容ID"""
         return hashlib.md5(content.encode()).hexdigest()
     
-    def _compute_embedding(self, text: str) -> List[float]:
+    async def _compute_embedding_api(self, text: str) -> List[float]:
+        """使用 API 计算文本嵌入"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.embedding_api_url}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.embedding_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.embedding_model,
+                        "input": text
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+                return result["data"][0]["embedding"]
+        except Exception as e:
+            print(f"[向量存储] API Embedding 失败: {e}，降级使用简化版")
+            return self._compute_embedding_simple(text)
+    
+    def _compute_embedding_simple(self, text: str) -> List[float]:
         """
-        计算文本嵌入（简化版，实际可以接入OpenAI等）
-        这里使用简单的字符频率作为特征向量
+        计算文本嵌入（简化版）
+        使用简单的字符频率作为特征向量
         """
-        # TODO: 接入真实的embedding模型
-        # 暂时使用简单的字符频率向量
         char_freq = {}
         for char in text.lower():
             char_freq[char] = char_freq.get(char, 0) + 1
@@ -72,6 +113,28 @@ class VectorStore:
             embedding.append(0.0)
         
         return embedding[:100]
+    
+    def _compute_embedding(self, text: str) -> List[float]:
+        """
+        计算文本嵌入（同步包装）
+        """
+        if self.use_api_embedding:
+            # 在同步上下文中运行异步函数
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果已经在事件循环中，创建一个任务
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self._compute_embedding_api(text))
+                        return future.result(timeout=30)
+                else:
+                    return loop.run_until_complete(self._compute_embedding_api(text))
+            except Exception as e:
+                print(f"[向量存储] 异步调用失败: {e}，使用简化版")
+                return self._compute_embedding_simple(text)
+        else:
+            return self._compute_embedding_simple(text)
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """计算余弦相似度"""
@@ -203,6 +266,8 @@ class VectorStore:
         
         with open(self.persist_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        print(f"[向量存储] 已保存 {len(self.items)} 条记录到 {self.persist_path}")
     
     def load(self):
         """从文件加载"""

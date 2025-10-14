@@ -91,12 +91,13 @@ class IntentRecognizer:
         
         return keywords_map
     
-    async def recognize(self, text: str) -> Dict[str, Any]:
+    async def recognize(self, text: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
-        识别意图
+        识别意图（支持上下文）
         
         Args:
             text: 用户输入文本
+            context: 对话上下文历史 [{"role": "user"/"assistant", "content": "..."}, ...]
         
         Returns:
             {
@@ -106,21 +107,32 @@ class IntentRecognizer:
                 "method": "rule" | "llm"
             }
         """
+        print(f"[意图识别] 输入文本: {text}")
+        if context:
+            print(f"[意图识别] 上下文消息数: {len(context)}")
+        
         # 先尝试规则匹配
+        print(f"[意图识别] 尝试规则匹配...")
         rule_result = self._recognize_by_rules(text)
+        print(f"[意图识别] 规则匹配结果: {rule_result['intent'].value}, 置信度: {rule_result['confidence']:.2f}")
         
         # 如果规则匹配置信度高，直接返回
         if rule_result["confidence"] >= 0.8:
+            print(f"[意图识别] ✓ 规则匹配置信度高 (≥0.8)，使用规则结果")
             return rule_result
         
-        # 否则使用LLM
+        # 否则使用LLM（带上下文）
         if self.use_llm:
-            llm_result = await self._recognize_by_llm(text)
+            print(f"[意图识别] 规则匹配置信度不够，尝试 LLM 识别（带上下文）...")
+            llm_result = await self._recognize_by_llm(text, context=context)
+            print(f"[意图识别] LLM 识别结果: {llm_result['intent'].value}, 置信度: {llm_result['confidence']:.2f}")
             # 如果LLM识别成功，返回LLM结果
             if llm_result["confidence"] >= 0.5:
+                print(f"[意图识别] ✓ LLM 识别置信度可用 (≥0.5)，使用 LLM 结果")
                 return llm_result
         
         # 都不行就返回规则结果
+        print(f"[意图识别] ✓ 降级使用规则结果")
         return rule_result
     
     def _recognize_by_rules(self, text: str) -> Dict[str, Any]:
@@ -165,8 +177,8 @@ class IntentRecognizer:
             "method": "rule"
         }
     
-    async def _recognize_by_llm(self, text: str) -> Dict[str, Any]:
-        """基于LLM的识别"""
+    async def _recognize_by_llm(self, text: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+        """基于LLM的识别（支持上下文）"""
         llm_config = self.config.get("textLLM", {})
         api_key = llm_config.get("apiKey")
         base_url = llm_config.get("baseUrl")
@@ -181,10 +193,26 @@ class IntentRecognizer:
                 "error": "LLM未配置"
             }
         
-        # 从配置文件获取prompt模板
+        # 构建消息列表
+        messages = []
+        
+        # 系统提示
+        system_prompt = self.prompts.get("system_prompt", "你是一个专业的意图识别助手。")
+        messages.append({"role": "system", "content": system_prompt})
+        
+        # 添加对话上下文（如果有）
+        if context and len(context) > 0:
+            # 只取最近几条消息（避免超过token限制）
+            recent_context = context[-4:] if len(context) > 4 else context
+            for msg in recent_context:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        # 添加意图识别指令
         prompt_template = self.prompts.get("intent_recognition_prompt", "")
         if not prompt_template:
-            # 使用降级prompt（也从配置读取）
             fallback_template = self.prompts.get("fallback_prompt", "")
             if fallback_template:
                 intent_list = ', '.join([intent.value for intent in IntentType])
@@ -193,7 +221,6 @@ class IntentRecognizer:
                     user_input=text
                 )
             else:
-                # 配置文件完全失败，返回错误
                 return {
                     "intent": IntentType.UNKNOWN,
                     "confidence": 0.0,
@@ -202,8 +229,9 @@ class IntentRecognizer:
                     "error": "Prompt配置未找到"
                 }
         else:
-            # 使用配置的prompt
             prompt = prompt_template.format(user_input=text)
+        
+        messages.append({"role": "user", "content": prompt})
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -215,9 +243,7 @@ class IntentRecognizer:
                     },
                     json={
                         "model": model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
+                        "messages": messages,
                         "temperature": 0.3,
                         "max_tokens": 50
                     }
