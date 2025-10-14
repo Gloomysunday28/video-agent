@@ -62,6 +62,13 @@ async def process_video(video_id: int):
 # 注册 API 路由
 app.include_router(api_router)
 
+# 导入并注册视频生成 API
+try:
+    from agent.api.video_generate import router as video_generate_router
+    app.include_router(video_generate_router)
+except ImportError as e:
+    print(f"警告: 无法导入视频生成 API: {e}")
+
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 

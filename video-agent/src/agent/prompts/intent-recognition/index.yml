@@ -1,0 +1,105 @@
+# 意图识别 Prompt
+
+system_prompt: |
+  你是一个专业的意图识别助手。你的任务是准确识别用户输入的意图类型。
+
+intent_recognition_prompt: |
+  请识别以下用户输入的意图类型。
+
+  可选的意图类型：
+  - generate_video: 生成视频
+  - edit_video: 编辑视频
+  - analyze_video: 分析视频
+  - chat: 普通聊天
+  - question: 提问
+  - help: 帮助
+  - settings: 设置
+  - unknown: 未知
+
+  用户输入：{user_input}
+
+  请直接返回最匹配的意图类型（只返回英文类型名称，不要其他内容）。
+
+# 降级方案prompt（当主prompt格式化失败时使用）
+fallback_prompt: |
+  请识别以下用户输入的意图类型。
+
+  可选的意图类型：
+  {intent_list}
+
+  用户输入：{user_input}
+
+  请直接返回最匹配的意图类型（只返回英文类型名称，不要其他内容）。
+
+# 意图类型说明
+intent_types:
+  generate_video:
+    name: 生成视频
+    description: 用户想要生成、创建、制作新视频
+    keywords:
+      - 生成视频
+      - 创建视频
+      - 制作视频
+      - 做个视频
+      - 做一个视频
+      - generate video
+      - create video
+      - make video
+    
+  edit_video:
+    name: 编辑视频
+    description: 用户想要编辑、修改现有视频
+    keywords:
+      - 编辑视频
+      - 修改视频
+      - 剪辑视频
+      - 裁剪视频
+      - edit video
+      - modify video
+      - cut video
+    
+  analyze_video:
+    name: 分析视频
+    description: 用户想要分析、识别视频内容
+    keywords:
+      - 分析视频
+      - 识别视频
+      - 看看视频
+      - 查看视频
+      - analyze video
+      - recognize video
+      - view video
+    
+  chat:
+    name: 普通聊天
+    description: 一般性的对话交流
+    keywords: []
+    
+  question:
+    name: 提问
+    description: 询问问题，寻求答案
+    keywords: []
+    
+  help:
+    name: 帮助
+    description: 寻求使用帮助
+    keywords:
+      - 帮助
+      - 怎么用
+      - 如何使用
+      - 使用方法
+      - help
+      - how to
+      - usage
+    
+  settings:
+    name: 设置
+    description: 配置系统参数
+    keywords:
+      - 设置
+      - 配置
+      - 参数
+      - settings
+      - config
+      - configuration
+

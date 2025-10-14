@@ -1,0 +1,21 @@
+textLLM: 
+  apiKey: sk-Xvm7jx079tPrCQaV9a2u7w
+  baseUrl: https://openkey.bantouyan.com
+  model: gpt-4o
+
+visionLLM:
+  apiKey: sk-Xvm7jx079tPrCQaV9a2u7w
+  baseUrl: https://openkey.bantouyan.com
+  model: gemini-2.5-flash
+
+# 剪映视频生成API配置
+jianyingAPI:
+  webId: "7537987985893295667"
+  msToken: "r2x9AF3dAqUa8qQ8lEtVPKSuzVx2dHF96xFvqOaTF74MNAP9nOTRMy7KPx5Yiq062XtdbHN2yJWb6blITzIdU-1XF6eftMAaKyhjgFttb86qD2JjpPALd4je7SoV4Bo="
+  generateSign: "a9d4740de3fd4dfff79d40f0553259d6"
+  statusSign: "4b8238b1156833f21a61bbfb1e396caa"
+  generateABogus: "Y6BEgOhGMsm1MPUdJ7kz9eT-yGy0YW5FgZENQecmHtwy"
+  statusABogus: "DvUQXOhGMsm1auUdJwkz9H79yH80YW4ogZENQetohzwC"
+  cookies:
+    # 从浏览器复制实际的cookies
+    # 格式: cookie_name: cookie_value
