@@ -120,6 +120,8 @@ class AgentScheduler:
         
         # 2. [Reaction 架构] 检查是否有待处理任务
         pending_task = self.context_manager.get_pending_task()
+        intent_result = None  # 初始化
+        
         if pending_task:
             print(f"[调度器 - Reaction] 检测到待处理任务: {pending_task['type']}")
             print(f"[调度器 - Reaction] 尝试从用户输入中提取参数: {pending_task['required_params']}")
@@ -138,11 +140,24 @@ class AgentScheduler:
                     intent_type = IntentType.ANALYZE_VIDEO
                     confidence = 1.0
                     entities = extracted_params
+                    # 构造 intent_result 用于后续日志
+                    intent_result = {
+                        "intent": intent_type,
+                        "confidence": confidence,
+                        "entities": entities,
+                        "method": "reaction"
+                    }
                 else:
                     result = {"success": False, "message": f"未知的待处理任务类型: {pending_task['type']}"}
                     intent_type = IntentType.UNKNOWN
                     confidence = 0.0
                     entities = {}
+                    intent_result = {
+                        "intent": intent_type,
+                        "confidence": confidence,
+                        "entities": entities,
+                        "method": "reaction"
+                    }
             else:
                 print(f"[调度器 - Reaction] ✗ 无法提取参数，继续等待")
                 return {
@@ -168,7 +183,8 @@ class AgentScheduler:
         print(f"[调度器]   - 意图类型: {intent_type.value}")
         print(f"[调度器]   - 置信度: {confidence:.2f}")
         print(f"[调度器]   - 提取实体: {entities}")
-        print(f"[调度器]   - 识别方法: {intent_result.get('method', 'unknown')}")
+        if intent_result:
+            print(f"[调度器]   - 识别方法: {intent_result.get('method', 'unknown')}")
         
         # 3. 根据意图调度工具
         try:
@@ -396,6 +412,36 @@ class AgentScheduler:
         """获取当前时间戳"""
         import time
         return int(time.time())
+    
+    def _get_context_for_intent_recognition(self) -> List[Dict[str, str]]:
+        """
+        获取用于意图识别的上下文历史
+        
+        Returns:
+            对话历史列表 [{"role": "user"/"assistant", "content": "..."}, ...]
+        """
+        history = self.context_manager.memory_store.get_history()
+        
+        # 只取最近几条（避免太长）
+        recent_history = history[-6:] if len(history) > 6 else history
+        
+        # 转换为 LLM 需要的格式
+        context = []
+        for msg in recent_history:
+            # msg 可能是字典或对象
+            if isinstance(msg, dict):
+                role = msg.get('role', 'user')
+                content = msg.get('content', '')
+            else:
+                role = getattr(msg, 'role', 'user')
+                content = getattr(msg, 'content', '')
+            
+            context.append({
+                "role": role,
+                "content": content[:500]  # 限制长度，避免超token
+            })
+        
+        return context
     
     def _extract_params_from_input(self, user_input: str, required_params: List[str]) -> Dict[str, Any]:
         """

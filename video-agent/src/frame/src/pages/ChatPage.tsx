@@ -106,7 +106,7 @@ function ChatPage() {
       const data = await response.json()
 
       // 提取回复内容
-      let content = '已处理完成'
+      let content = ''
       if (data.result?.result) {
         // 视频分析/生成等工具返回的详细结果
         content = data.result.result
@@ -119,6 +119,12 @@ function ChatPage() {
       } else if (data.message) {
         // API 返回的消息
         content = data.message
+      } else if (data.error) {
+        // 错误信息
+        content = `处理出错：${data.error}`
+      } else {
+        // 兜底
+        content = JSON.stringify(data)
       }
 
       // 添加助手回复
