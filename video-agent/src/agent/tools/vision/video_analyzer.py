@@ -67,7 +67,9 @@ class VideoAnalyzer:
         self,
         video_path: str,
         task: str = "describe",
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        video_file: Optional[str] = None,
+        video_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         分析视频内容
@@ -76,6 +78,8 @@ class VideoAnalyzer:
             video_path: 视频文件路径或URL
             task: 分析任务类型 (describe, action, scene, emotion等)
             custom_prompt: 自定义prompt，如果提供则覆盖默认prompt
+            video_file: base64编码的视频文件
+            video_filename: 视频文件名
         
         Returns:
             {
@@ -91,6 +95,8 @@ class VideoAnalyzer:
         logger.info(f"入参 - video_path: {video_path}")
         logger.info(f"入参 - task: {task}")
         logger.info(f"入参 - custom_prompt: {custom_prompt}")
+        logger.info(f"入参 - video_file: {'有' if video_file else '无'}")
+        logger.info(f"入参 - video_filename: {video_filename}")
         logger.info(f"配置 - model: {self.model}, base_url: {self.base_url}")
         
         if not self.api_key or not self.base_url:
@@ -100,14 +106,17 @@ class VideoAnalyzer:
                 "error": "视觉模型未配置"
             }
         
+        # 优先使用上传的视频文件
+        actual_video_path = video_file if video_file else video_path
+        
         # Gemini模型支持原生视频分析
         if self._is_gemini_model():
             logger.info("使用 Gemini 原生视频分析")
-            result = await self._analyze_video_gemini(video_path, task, custom_prompt)
+            result = await self._analyze_video_gemini(actual_video_path, task, custom_prompt, video_filename)
         else:
             # 其他模型需要拆帧分析
             logger.info("使用视频拆帧分析")
-            result = await self._analyze_video_with_frames(video_path, task, custom_prompt)
+            result = await self._analyze_video_with_frames(actual_video_path, task, custom_prompt)
         
         logger.info(f"VideoAnalyzer.analyze_video 出参: {result}")
         logger.info("=" * 60)
@@ -117,7 +126,8 @@ class VideoAnalyzer:
         self,
         video_path: str,
         task: str,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        video_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """使用Gemini原生视频分析"""
         try:
@@ -137,11 +147,26 @@ class VideoAnalyzer:
             
             # 构建请求内容
             is_url = video_path.startswith(('http://', 'https://'))
+            is_base64 = not is_url and not video_path.startswith('/') and not video_path.startswith('./')
             
             if is_url:
                 # 直接使用 URL，不下载
                 logger.info(f"使用视频 URL: {video_path}")
                 video_url = video_path
+            elif is_base64:
+                # 使用 base64 数据
+                logger.info(f"使用 base64 视频数据，文件名: {video_filename}")
+                # 确定MIME类型
+                mime_type = "video/mp4"  # 默认
+                if video_filename:
+                    if video_filename.endswith('.avi'):
+                        mime_type = "video/avi"
+                    elif video_filename.endswith('.mov'):
+                        mime_type = "video/quicktime"
+                    elif video_filename.endswith('.webm'):
+                        mime_type = "video/webm"
+                
+                video_url = f"data:{mime_type};base64,{video_path}"
             else:
                 # 本地文件需要转 base64
                 logger.info(f"读取本地视频文件: {video_path}")
@@ -368,9 +393,19 @@ class VideoAnalyzer:
         # 最终降级
         return f"请分析这个视频并完成以下任务: {task}"
     
-    async def describe_video(self, video_path: str) -> Dict[str, Any]:
+    async def describe_video(
+        self, 
+        video_path: str, 
+        video_file: Optional[str] = None, 
+        video_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
         """描述视频内容"""
-        return await self.analyze_video(video_path, task="describe")
+        return await self.analyze_video(
+            video_path=video_path, 
+            task="describe",
+            video_file=video_file,
+            video_filename=video_filename
+        )
     
     async def detect_actions(self, video_path: str) -> Dict[str, Any]:
         """检测视频中的动作"""

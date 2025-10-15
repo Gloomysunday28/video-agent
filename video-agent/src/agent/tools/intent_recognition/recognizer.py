@@ -91,6 +91,25 @@ class IntentRecognizer:
         
         return keywords_map
     
+    def _generate_title(self, text: str, intent: 'IntentType') -> str:
+        """生成对话标题"""
+        # 截取前30个字符作为基础
+        base_text = text[:30].strip()
+        if len(text) > 30:
+            base_text += "..."
+        
+        # 根据意图类型添加前缀
+        if intent.value == "analyze_video":
+            return f"🔍 视频分析: {base_text}"
+        elif intent.value == "generate_video":
+            return f"🎥 视频生成: {base_text}"
+        elif intent.value == "general_chat":
+            return f"💬 对话: {base_text}"
+        elif intent.value == "unknown":
+            return f"❓ 未知: {base_text}"
+        else:
+            return f"📝 {base_text}"
+    
     async def recognize(self, text: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
         识别意图（支持上下文）
@@ -104,7 +123,8 @@ class IntentRecognizer:
                 "intent": IntentType,
                 "confidence": float,
                 "entities": dict,
-                "method": "rule" | "llm"
+                "method": "rule" | "llm",
+                "title": str  # 新增：对话标题
             }
         """
         print(f"[意图识别] 输入文本: {text}")
@@ -116,9 +136,13 @@ class IntentRecognizer:
         rule_result = self._recognize_by_rules(text)
         print(f"[意图识别] 规则匹配结果: {rule_result['intent'].value}, 置信度: {rule_result['confidence']:.2f}")
         
+        # 生成标题
+        title = self._generate_title(text, rule_result["intent"])
+        rule_result["title"] = title
+        
         # 如果规则匹配置信度高，直接返回
         if rule_result["confidence"] >= 0.8:
-            print(f"[意图识别] ✓ 规则匹配置信度高 (≥0.8)，使用规则结果")
+            print(f"[意图识别] ✓ 规则匹配置信度高 (≥0.8)，使用规则结果，标题: {title}")
             return rule_result
         
         # 否则使用LLM（带上下文）
@@ -128,11 +152,14 @@ class IntentRecognizer:
             print(f"[意图识别] LLM 识别结果: {llm_result['intent'].value}, 置信度: {llm_result['confidence']:.2f}")
             # 如果LLM识别成功，返回LLM结果
             if llm_result["confidence"] >= 0.5:
-                print(f"[意图识别] ✓ LLM 识别置信度可用 (≥0.5)，使用 LLM 结果")
+                # 为LLM结果生成标题
+                llm_title = self._generate_title(text, llm_result["intent"])
+                llm_result["title"] = llm_title
+                print(f"[意图识别] ✓ LLM 识别置信度可用 (≥0.5)，使用 LLM 结果，标题: {llm_title}")
                 return llm_result
         
         # 都不行就返回规则结果
-        print(f"[意图识别] ✓ 降级使用规则结果")
+        print(f"[意图识别] ✓ 降级使用规则结果，标题: {title}")
         return rule_result
     
     def _recognize_by_rules(self, text: str) -> Dict[str, Any]:

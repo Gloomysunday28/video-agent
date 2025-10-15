@@ -25,6 +25,8 @@ class ChatRequest(BaseModel):
     session_id: str = Field(default_factory=generate_session_id, description="会话ID")
     message: str = Field(..., description="用户消息")
     video_path: Optional[str] = Field(default=None, description="视频路径（用于视频分析）")
+    video_file: Optional[str] = Field(default=None, description="视频文件base64（用于视频分析）")
+    video_filename: Optional[str] = Field(default=None, description="视频文件名")
     aspect_ratio: Optional[str] = Field(default="16:9", description="宽高比（用于视频生成）")
     duration: Optional[int] = Field(default=5, description="时长（用于视频生成）")
     resolution: Optional[str] = Field(default="720p", description="分辨率（用于视频生成）")
@@ -85,6 +87,8 @@ async def chat(request: ChatRequest):
         # 构建参数
         kwargs = {
             "video_path": request.video_path,
+            "video_file": request.video_file,
+            "video_filename": request.video_filename,
             "aspect_ratio": request.aspect_ratio,
             "duration": request.duration,
             "resolution": request.resolution,
@@ -158,6 +162,89 @@ async def get_context_summary(session_id: str):
         }
 
 
+@router.get("/sessions")
+async def get_all_sessions():
+    """
+    获取所有会话列表
+    
+    Returns:
+        {
+            "success": bool,
+            "sessions": [{"session_id": str, "title": str, "last_activity": float, "message_count": int}, ...],
+            "error": str
+        }
+    """
+    logger.info("API 调用: /api/chat/sessions")
+    
+    try:
+        from pathlib import Path
+        import json
+        from agent.context.manager import DEFAULT_DATA_DIR
+        
+        sessions = []
+        
+        # 遍历所有会话目录
+        if DEFAULT_DATA_DIR.exists():
+            for session_dir in DEFAULT_DATA_DIR.iterdir():
+                if session_dir.is_dir():
+                    session_id = session_dir.name
+                    
+                    # 读取元数据
+                    metadata_path = session_dir / "metadata.json"
+                    metadata = {}
+                    if metadata_path.exists():
+                        with open(metadata_path, 'r', encoding='utf-8') as f:
+                            metadata = json.load(f)
+                    
+                    # 读取向量存储获取消息数量和最后活动时间
+                    vector_store_path = session_dir / "vector_store.json"
+                    message_count = 0
+                    last_activity = 0
+                    title = "新对话"
+                    
+                    if vector_store_path.exists():
+                        with open(vector_store_path, 'r', encoding='utf-8') as f:
+                            vector_data = json.load(f)
+                        
+                        message_count = len(vector_data.get("items", []))
+                        
+                        # 找到最后一条消息的时间戳
+                        for item in vector_data.get("items", []):
+                            item_metadata = item.get("metadata", {})
+                            timestamp = item_metadata.get("timestamp", 0)
+                            if timestamp > last_activity:
+                                last_activity = timestamp
+                                # 如果有标题，使用标题
+                                if item_metadata.get("title"):
+                                    title = item_metadata.get("title")
+                    
+                    sessions.append({
+                        "session_id": session_id,
+                        "title": title,
+                        "last_activity": last_activity,
+                        "message_count": message_count,
+                        "metadata": metadata
+                    })
+        
+        # 按最后活动时间排序（最新的在前）
+        sessions.sort(key=lambda x: x["last_activity"], reverse=True)
+        
+        logger.info(f"获取到 {len(sessions)} 个会话")
+        
+        return {
+            "success": True,
+            "sessions": sessions
+        }
+        
+    except Exception as e:
+        logger.exception(f"获取会话列表出错: {e}")
+        return {
+            "success": False,
+            "sessions": [],
+            "error": str(e)
+        }
+
+
 @router.get("/history/{session_id}")
 async def get_chat_history(session_id: str):
     """
@@ -224,7 +311,8 @@ async def get_chat_history(session_id: str):
                         messages.append({
                             "role": role,
                             "content": message_content,
-                            "timestamp": item_metadata.get("timestamp", 0)
+                            "timestamp": item_metadata.get("timestamp", 0),
+                            "metadata": item_metadata  # 包含所有metadata，包括title
                         })
         
         # 按时间排序

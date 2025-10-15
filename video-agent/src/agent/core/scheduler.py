@@ -127,7 +127,7 @@ class AgentScheduler:
             print(f"[调度器 - Reaction] 尝试从用户输入中提取参数: {pending_task['required_params']}")
             
             # 尝试从用户输入中提取参数
-            extracted_params = self._extract_params_from_input(user_input, pending_task['required_params'])
+            extracted_params = self._extract_params_from_input(user_input, pending_task['required_params'], **kwargs)
             
             if extracted_params:
                 print(f"[调度器 - Reaction] ✓ 成功提取参数: {extracted_params}")
@@ -230,7 +230,8 @@ class AgentScheduler:
                     "timestamp": self._get_timestamp(),
                     "intent": intent_type.value,
                     "confidence": confidence,
-                    "success": result.get("success") if isinstance(result, dict) else None
+                    "success": result.get("success") if isinstance(result, dict) else None,
+                    "title": intent_result.get("title") if intent_result else None  # 添加标题
                 }
             )
             
@@ -307,14 +308,18 @@ class AgentScheduler:
         """处理视频分析请求"""
         import re
         
-        # 1. 优先从 kwargs 获取
+        # 1. 优先从 kwargs 获取视频文件
+        video_file = kwargs.get("video_file")
+        video_filename = kwargs.get("video_filename")
+        
+        # 2. 获取视频路径（URL或本地路径）
         video_path = kwargs.get("video_path")
         
-        # 2. 从 entities 获取
+        # 3. 从 entities 获取
         if not video_path:
             video_path = entities.get("video_url") or entities.get("url")
         
-        # 3. 从用户输入中提取 URL
+        # 4. 从用户输入中提取 URL
         if not video_path:
             # 匹配 http:// 或 https:// 开头的 URL
             url_pattern = r'https?://[^\s]+'
@@ -322,7 +327,8 @@ class AgentScheduler:
             if urls:
                 video_path = urls[0]
         
-        if not video_path:
+        # 5. 检查是否有视频数据
+        if not video_file and not video_path:
             # [Reaction 架构] 设置待处理任务，等待用户提供视频URL
             print(f"[调度器 - Reaction] 缺少视频路径，设置待处理任务")
             self.context_manager.set_pending_task(
@@ -335,12 +341,19 @@ class AgentScheduler:
                 "message": "需要提供视频路径，请在消息中包含视频 URL"
             }
         
-        print(f"[调度器] 分析视频 - 路径: {video_path}")
+        # 6. 使用上传的视频文件或URL
+        actual_video_path = video_file if video_file else video_path
+        print(f"[调度器] 分析视频 - 类型: {'base64文件' if video_file else 'URL/路径'}")
+        print(f"[调度器] 分析视频 - 文件名: {video_filename}")
         
         analyzer = self.tools["video_analyzer"]
         
-        # 调用分析工具
-        result = await analyzer.describe_video(video_path)
+        # 调用分析工具，传递所有参数
+        result = await analyzer.describe_video(
+            video_path=actual_video_path,
+            video_file=video_file,
+            video_filename=video_filename
+        )
         
         return result
     
@@ -443,13 +456,14 @@ class AgentScheduler:
         
         return context
     
-    def _extract_params_from_input(self, user_input: str, required_params: List[str]) -> Dict[str, Any]:
+    def _extract_params_from_input(self, user_input: str, required_params: List[str], **kwargs) -> Dict[str, Any]:
         """
         从用户输入中提取参数（Reaction 架构）
         
         Args:
             user_input: 用户输入
             required_params: 需要的参数列表
+            **kwargs: 额外的参数（包括视频文件）
         
         Returns:
             提取到的参数字典
@@ -459,12 +473,17 @@ class AgentScheduler:
         
         for param in required_params:
             if param == "video_path" or param == "video_url":
-                # 提取 URL
-                url_pattern = r'https?://[^\s]+'
-                urls = re.findall(url_pattern, user_input)
-                if urls:
-                    extracted["video_path"] = urls[0]
-                    print(f"[参数提取] 找到视频URL: {urls[0][:50]}...")
+                # 优先使用上传的视频文件
+                if kwargs.get("video_file"):
+                    extracted["video_path"] = kwargs["video_file"]
+                    print(f"[参数提取] 使用上传的视频文件")
+                else:
+                    # 提取 URL
+                    url_pattern = r'https?://[^\s]+'
+                    urls = re.findall(url_pattern, user_input)
+                    if urls:
+                        extracted["video_path"] = urls[0]
+                        print(f"[参数提取] 找到视频URL: {urls[0][:50]}...")
             
             elif param == "prompt" or param == "description":
                 # 提取描述文本（去除URL后的文本）
