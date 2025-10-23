@@ -8,7 +8,7 @@ export function useSessions() {
   const loadSessions = async () => {
     setIsLoadingSessions(true)
     try {
-      const response = await fetch('/api/chat/sessions')
+      const response = await fetch('http://localhost:8000/api/chat/sessions')
       const data = await response.json()
       
       if (data.success && data.sessions) {

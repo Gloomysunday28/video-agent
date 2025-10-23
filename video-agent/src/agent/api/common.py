@@ -9,7 +9,7 @@ import yaml
 from fastapi import HTTPException
 
 from agent.core import AgentScheduler
-from agent.tools.generate import JianyingConfig
+from agent.tools.generate import JianyingConfig, DoubaoConfig
 
 
 def generate_session_id() -> str:
@@ -80,6 +80,51 @@ def load_jianying_config() -> JianyingConfig:
         generate_a_bogus=jianying_cfg.get("generateABogus", ""),
         status_a_bogus=jianying_cfg.get("statusABogus", ""),
         cookies=jianying_cfg.get("cookies", {})
+    )
+
+
+def load_doubao_config() -> DoubaoConfig:
+    """
+    加载豆包API配置
+    
+    Returns:
+        DoubaoConfig实例
+    """
+    config = load_config()
+    doubao_cfg = config.get("doubaoAPI", {})
+    
+    if not doubao_cfg:
+        raise ValueError("豆包API未配置")
+    
+    return DoubaoConfig(
+        api_key=doubao_cfg.get("apiKey", ""),
+        model=doubao_cfg.get("model", "doubao-seedream-4-0-250828"),
+        timeout=doubao_cfg.get("timeout", 300)
+    )
+
+
+
+
+def load_betteryeah_config():
+    """
+    加载BetterYeah API配置
+    
+    Returns:
+        BetterYeahConfig实例
+    """
+    from agent.tools.generate.images.betteryeah_generator import BetterYeahConfig
+    
+    config = load_config()
+    betteryeah_cfg = config.get("betteryeahAPI", {})
+    
+    if not betteryeah_cfg:
+        raise ValueError("BetterYeah API未配置")
+    
+    return BetterYeahConfig(
+        api_url=betteryeah_cfg.get("apiUrl", ""),
+        access_key=betteryeah_cfg.get("accessKey", ""),
+        workspace_id=betteryeah_cfg.get("workspaceId", ""),
+        timeout=betteryeah_cfg.get("timeout", 300)
     )
 
 

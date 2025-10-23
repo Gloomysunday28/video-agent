@@ -15,6 +15,7 @@ class IntentType(Enum):
     """意图类型"""
     # 视频相关
     GENERATE_VIDEO = "generate_video"  # 生成视频
+    GENERATE_IMAGE = "generate_image"  # 生成图片
     EDIT_VIDEO = "edit_video"          # 编辑视频
     ANALYZE_VIDEO = "analyze_video"    # 分析视频
     
@@ -103,6 +104,8 @@ class IntentRecognizer:
             return f"🔍 视频分析: {base_text}"
         elif intent.value == "generate_video":
             return f"🎥 视频生成: {base_text}"
+        elif intent.value == "generate_image":
+            return f"🖼️ 图片生成: {base_text}"
         elif intent.value == "general_chat":
             return f"💬 对话: {base_text}"
         elif intent.value == "unknown":
@@ -140,9 +143,9 @@ class IntentRecognizer:
         title = self._generate_title(text, rule_result["intent"])
         rule_result["title"] = title
         
-        # 如果规则匹配置信度高，直接返回
-        if rule_result["confidence"] >= 0.8:
-            print(f"[意图识别] ✓ 规则匹配置信度高 (≥0.8)，使用规则结果，标题: {title}")
+        # 如果规则匹配置信度高，直接返回（降低阈值，避免触发LLM）
+        if rule_result["confidence"] >= 0.5:
+            print(f"[意图识别] ✓ 规则匹配置信度可用 (≥0.5)，使用规则结果，标题: {title}")
             return rule_result
         
         # 否则使用LLM（带上下文）
@@ -186,7 +189,8 @@ class IntentRecognizer:
         if scores:
             best_intent = max(scores.items(), key=lambda x: x[1]["score"])
             intent_type = best_intent[0]
-            confidence = min(best_intent[1]["score"] * 0.3, 0.9)
+            # 提高置信度计算，让关键词匹配更容易达到0.5阈值
+            confidence = min(best_intent[1]["score"] * 0.5, 0.9)
             
             return {
                 "intent": intent_type,

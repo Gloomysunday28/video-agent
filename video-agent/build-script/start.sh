@@ -12,7 +12,7 @@ echo "📁 项目目录: $PROJECT_ROOT"
 
 # 确保依赖已安装
 echo "📦 安装 Python 依赖..."
-pip install -e . -q
+python3.13 -m pip install -e . -q
 
 # 在后台启动 Vite 开发服务器
 echo "🎨 启动前端开发服务器（端口 5173）..."
@@ -49,5 +49,5 @@ trap cleanup SIGINT SIGTERM
 
 # 启动后端
 cd src
-DEV_MODE=true python -m uvicorn gateway.server:app --host 127.0.0.1 --port 8000 --reload
+DEV_MODE=true python3.13 -m uvicorn gateway.server:app --host 127.0.0.1 --port 8000 --reload
 

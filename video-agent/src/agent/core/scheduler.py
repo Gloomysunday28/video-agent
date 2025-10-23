@@ -6,9 +6,9 @@ Agent调度器
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 import yaml
+import asyncio
 
 from agent.tools.intent_recognition import IntentRecognizer, IntentType
-from agent.tools.generate import JianyingVideoGenerator, JianyingConfig
 from agent.tools.vision import VideoAnalyzer
 from agent.context.manager import ContextManager
 
@@ -81,7 +81,6 @@ class AgentScheduler:
     def _register_tools(self):
         """注册可用工具"""
         # 视频生成工具
-        self.tools["video_generator"] = None  # 延迟加载
         
         # 视频分析工具
         self.tools["video_analyzer"] = VideoAnalyzer()
@@ -171,13 +170,43 @@ class AgentScheduler:
             # 3. 正常识别意图（带上下文）
             print(f"[调度器] 开始识别意图，用户输入: {user_input}")
             
-            # 获取最近的对话历史作为上下文
-            context_history = self._get_context_for_intent_recognition()
+            # 优先检查文件类型来确定意图
+            image_file = kwargs.get("image_file")
+            video_file = kwargs.get("video_file")
             
-            intent_result = await self.intent_recognizer.recognize(user_input, context=context_history)
-            intent_type = intent_result["intent"]
-            confidence = intent_result["confidence"]
-            entities = intent_result.get("entities", {})
+            if image_file:
+                # 如果上传了图片，直接识别为生成图片意图
+                print(f"[调度器] 检测到图片文件，直接识别为生成图片意图")
+                intent_type = IntentType.GENERATE_IMAGE
+                confidence = 1.0
+                entities = {"description": user_input}
+                intent_result = {
+                    "intent": intent_type,
+                    "confidence": confidence,
+                    "entities": entities,
+                    "method": "file_based"
+                }
+            elif video_file:
+                # 如果上传了视频，直接识别为分析视频意图
+                print(f"[调度器] 检测到视频文件，直接识别为分析视频意图")
+                intent_type = IntentType.ANALYZE_VIDEO
+                confidence = 1.0
+                entities = {"video_description": user_input}
+                intent_result = {
+                    "intent": intent_type,
+                    "confidence": confidence,
+                    "entities": entities,
+                    "method": "file_based"
+                }
+            else:
+                # 没有文件，使用正常的意图识别
+                # 获取最近的对话历史作为上下文
+                context_history = self._get_context_for_intent_recognition()
+                
+                intent_result = await self.intent_recognizer.recognize(user_input, context=context_history)
+                intent_type = intent_result["intent"]
+                confidence = intent_result["confidence"]
+                entities = intent_result.get("entities", {})
         
         print(f"[调度器] ✓ 意图识别完成")
         print(f"[调度器]   - 意图类型: {intent_type.value}")
@@ -192,6 +221,12 @@ class AgentScheduler:
                 print(f"[调度器] → 调用工具: 视频生成 (generate_video)")
                 result = await self._handle_generate_video(user_input, entities, **kwargs)
                 print(f"[调度器] ← 工具返回: {result}")
+            
+            elif intent_type == IntentType.GENERATE_IMAGE:
+                print(f"[调度器] → 调用工具: 图片生成 (generate_image)")
+                result = await self._handle_generate_image(user_input, entities, **kwargs)
+                print(f"[调度器] ← 图片生成工具返回: {result}")
+                print(f"[调度器] 结果类型: {type(result)}, success: {result.get('success') if isinstance(result, dict) else 'N/A'}")
             
             elif intent_type == IntentType.ANALYZE_VIDEO:
                 print(f"[调度器] → 调用工具: 视频分析 (analyze_video)")
@@ -208,20 +243,45 @@ class AgentScheduler:
                 result = await self._handle_chat(user_input, **kwargs)
                 print(f"[调度器] ← 工具返回: {result}")
             
+            elif intent_type == IntentType.UNKNOWN:
+                print(f"[调度器] → 意图未识别，转为普通对话模式")
+                result = await self._handle_chat(user_input, **kwargs)
+                print(f"[调度器] ← 工具返回: {result}")
+            
             else:
-                print(f"[调度器] ✗ 未知意图类型: {intent_type.value}")
-                result = {
-                    "success": False,
-                    "message": f"暂不支持的意图类型: {intent_type.value}"
-                }
+                print(f"[调度器] ✗ 未知意图类型: {intent_type.value}，转为普通对话模式")
+                result = await self._handle_chat(user_input, **kwargs)
+                print(f"[调度器] ← 工具返回: {result}")
             
             # 4. 添加结果到上下文
             # 提取实际的内容（而不是整个字典）
             if isinstance(result, dict):
                 # 优先提取 result 字段，其次 message 字段
                 assistant_content = result.get("result") or result.get("message") or str(result)
+                
+                # 检查消息类型
+                message_type = "text"  # 默认类型
+                if intent_type == IntentType.GENERATE_IMAGE:
+                    # 图片生成结果
+                    message_type = "image"
+                    # 对于图片消息，content 直接是图片URL，不需要额外的文案
+                    if result.get("image_url"):  # 优先使用image_url字段
+                        assistant_content = result.get("image_url")
+                    elif result.get("video_url"):  # 兼容性：豆包图片生成器返回的video_url字段
+                        assistant_content = result.get("video_url")
+                    elif result.get("video_path"):  # 兼容其他可能的字段名
+                        assistant_content = result.get("video_path")
+                elif result.get("video_path") or result.get("video_url"):
+                    # 视频生成结果
+                    message_type = "video"
+                    # 对于视频消息，content 直接是视频URL，不需要额外的文案
+                    if result.get("video_url"):
+                        assistant_content = result.get("video_url")
+                    elif result.get("video_path"):
+                        assistant_content = result.get("video_path")
             else:
                 assistant_content = str(result)
+                message_type = "text"
             
             self.context_manager.add_message(
                 role="assistant",
@@ -231,7 +291,8 @@ class AgentScheduler:
                     "intent": intent_type.value,
                     "confidence": confidence,
                     "success": result.get("success") if isinstance(result, dict) else None,
-                    "title": intent_result.get("title") if intent_result else None  # 添加标题
+                    "title": intent_result.get("title") if intent_result else None,  # 添加标题
+                    "message_type": message_type  # 添加消息类型
                 }
             )
             
@@ -275,19 +336,86 @@ class AgentScheduler:
         **kwargs
     ) -> Dict[str, Any]:
         """处理视频生成请求"""
+        # 导入WebSocket状态推送功能
+        # 不再需要实时状态推送
+        has_sse = False
+        # 兼容旧逻辑，防止未定义变量报错（当前不使用 WebSocket 推送）
+        has_websocket = False
+        
         # 从实体或kwargs中提取参数
         prompt = entities.get("description", user_input)
         aspect_ratio = entities.get("aspect_ratio", kwargs.get("aspect_ratio", "16:9"))
         duration = entities.get("duration", kwargs.get("duration", 5))
         resolution = entities.get("resolution", kwargs.get("resolution", "720p"))
+        generator_type = kwargs.get("generator_type", "doubao")
+        script_path = kwargs.get("script_path")
         
-        print(f"[调度器] 生成视频 - prompt: {prompt}, 宽高比: {aspect_ratio}, 时长: {duration}秒")
+        print(f"[调度器] 生成视频 - prompt: {prompt}, 宽高比: {aspect_ratio}, 时长: {duration}秒, 生成器: {generator_type}")
         
-        # 延迟加载视频生成器（需要配置）
-        if self.tools["video_generator"] is None:
-            self.tools["video_generator"] = self._create_video_generator()
         
-        generator = self.tools["video_generator"]
+        # 根据生成器类型选择生成器
+        if generator_type == "doubao":
+            print(f"[调度器] 使用豆包生成器")
+            from agent.tools.generate import DoubaoVideoGenerator, DoubaoConfig
+            from agent.api.common import load_doubao_config
+            
+            try:
+                config = load_doubao_config()
+                generator = DoubaoVideoGenerator(config)
+                print(f"[调度器] ✓ 豆包生成器初始化成功")
+            except Exception as e:
+                print(f"[调度器] ✗ 豆包生成器初始化失败: {e}")
+                return {
+                    "success": False,
+                    "message": f"豆包生成器初始化失败: {str(e)}"
+                }
+        elif generator_type == "jianying":
+            print(f"[调度器] 使用剪映生成器")
+            from agent.tools.generate import JianyingVideoGenerator, JianyingConfig
+            from agent.api.common import load_jianying_config
+            
+            try:
+                config = load_jianying_config()
+                generator = JianyingVideoGenerator(config)
+                print(f"[调度器] ✓ 剪映生成器初始化成功")
+            except Exception as e:
+                print(f"[调度器] ✗ 剪映生成器初始化失败: {e}")
+                return {
+                    "success": False,
+                    "message": f"剪映生成器初始化失败: {str(e)}"
+                }
+        else:
+            # 使用脚本生成器（默认）
+            print(f"[调度器] 使用脚本生成器")
+            if not script_path:
+                # 使用默认脚本路径
+                script_path = "/Users/weiguang/agent/agents/video-agent/src/agent/tools/generate/script_generator.py"
+            
+            from agent.tools.generate import ScriptVideoGenerator, ScriptConfig
+            config = ScriptConfig(
+                script_path=script_path,
+                python_executable="python3.13",
+                timeout=kwargs.get("timeout", 900)
+            )
+            generator = ScriptVideoGenerator(config)
+            print(f"[调度器] ✓ 脚本生成器初始化成功")
+            
+            if False:  # 禁用实时状态推送
+                await send_task_progress(
+                    self.session_id,
+                    "video_generation",
+                    20.0,
+                    "开始执行视频生成脚本..."
+                )
+        
+        # 发送处理中状态
+        if False:  # 禁用实时状态推送
+            await send_task_status(
+                self.session_id,
+                "video_generation",
+                "processing",
+                "正在执行视频生成脚本..."
+            )
         
         # 调用生成工具
         result = await generator.generate_video(
@@ -295,6 +423,241 @@ class AgentScheduler:
             aspect_ratio=aspect_ratio,
             duration=duration,
             resolution=resolution
+        )
+        
+        # 如果剪映API调用时间较长，发送额外的进度更新
+        if False:  # 禁用实时状态推送
+            await send_task_progress(
+                self.session_id,
+                "video_generation",
+                50.0,
+                "剪映API调用完成，正在处理结果..."
+            )
+        
+        # 根据生成器类型决定是否需要轮询状态
+        if result.get("success") and result.get("submit_id"):
+            if generator_type == "doubao":
+                # 豆包生成器是同步的，不需要轮询
+                print(f"[调度器] 豆包生成器是同步的，直接返回结果")
+                pass
+            else:
+                # 其他生成器需要轮询状态
+                if False:  # 禁用实时状态推送
+                    await send_task_progress(
+                        self.session_id,
+                        "video_generation",
+                        70.0,
+                        "正在等待视频生成完成..."
+                    )
+                
+                # 轮询视频状态
+                submit_id = result.get("submit_id")
+                max_attempts = 30  # 最多轮询30次
+                attempt = 0
+                
+                while attempt < max_attempts:
+                    await asyncio.sleep(5)  # 等待5秒
+                    attempt += 1
+                    
+                    if False:  # 禁用实时状态推送
+                        await send_task_progress(
+                            self.session_id,
+                            "video_generation",
+                            70 + (attempt * 1),  # 从70%到100%
+                            f"正在检查视频生成状态... ({attempt}/{max_attempts})"
+                        )
+                    
+                    # 查询视频状态
+                    status_result = await generator.get_video_status(submit_id)
+                    
+                    if status_result.get("success") and status_result.get("status") == "completed":
+                        # 视频生成完成，获取URL
+                        video_url = status_result.get("video_url")
+                        if video_url:
+                            result["video_url"] = video_url
+                            result["message"] = "视频生成成功！"
+                            
+                            if False:  # 禁用实时状态推送
+                                await send_task_completed(
+                                    self.session_id,
+                                    "video_generation",
+                                    "视频生成成功！",
+                                    result
+                                )
+                            break
+                        else:
+                            # 状态显示完成但没有URL，继续等待
+                            continue
+                    elif status_result.get("status") == "failed":
+                        # 视频生成失败
+                        result["success"] = False
+                        result["message"] = "视频生成失败"
+                        result["error"] = status_result.get("message", "未知错误")
+                        
+                        if False:  # 禁用实时状态推送
+                            await send_task_error(
+                                self.session_id,
+                                "video_generation",
+                                "视频生成失败",
+                                result
+                            )
+                        break
+                    else:
+                        # 还在处理中，继续等待
+                        continue
+                
+                # 如果超时还没有完成
+                if attempt >= max_attempts:
+                    result["message"] = "视频生成超时，请稍后手动查询"
+                    if False:  # 禁用实时状态推送
+                        await send_task_error(
+                            self.session_id,
+                            "video_generation",
+                            "视频生成超时",
+                            result
+                        )
+        
+        # 发送完成状态（如果没有通过轮询处理）
+        if has_websocket and not result.get("video_url"):
+            if result.get("success"):
+                await send_task_completed(
+                    self.session_id,
+                    "video_generation",
+                    result.get("message", "视频生成任务已提交"),
+                    result
+                )
+            else:
+                await send_task_error(
+                    self.session_id,
+                    "video_generation",
+                    result.get("message", "视频生成失败"),
+                    result
+                )
+        
+        return result
+    
+    async def _handle_generate_image(
+        self,
+        user_input: str,
+        entities: Dict[str, Any],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """处理图片生成请求（支持多模态）"""
+        # 从实体或kwargs中提取参数
+        prompt = entities.get("description", user_input)
+        resolution = entities.get("resolution", kwargs.get("resolution", "720p"))
+        generator_type = kwargs.get("generator_type", "doubao")
+        
+        # 获取参考图片（多模态支持）
+        image_file = kwargs.get("image_file")
+        image_filename = kwargs.get("image_filename")
+        
+        print(f"[调度器] 调试 - image_file: {image_file[:100] if image_file else None}")
+        print(f"[调度器] 调试 - image_filename: {image_filename}")
+        print(f"[调度器] 调试 - 所有kwargs: {list(kwargs.keys())}")
+        
+        if image_file:
+            print(f"[调度器] 多模态图片生成 - prompt: {prompt}, 分辨率: {resolution}, 生成器: {generator_type}, 参考图片: {image_filename or '有图片数据'}")
+        else:
+            print(f"[调度器] 文本到图片生成 - prompt: {prompt}, 分辨率: {resolution}, 生成器: {generator_type}")
+        
+        # 根据生成器类型和是否有参考图片选择生成器
+        if generator_type == "doubao":
+            # 如果有参考图片，使用豆包生成器（支持多模态）
+            if image_file:
+                print(f"[调度器] 检测到参考图片，使用豆包生成器进行图生图")
+                from agent.tools.generate.images.doubao_generator import DoubaoVideoGenerator, DoubaoConfig
+                from agent.api.common import load_doubao_config
+                
+                try:
+                    config = load_doubao_config()
+                    generator = DoubaoVideoGenerator(config)
+                    print(f"[调度器] ✓ 豆包图片生成器初始化成功")
+                except Exception as e:
+                    print(f"[调度器] ✗ 豆包图片生成器初始化失败: {e}")
+                    return {
+                        "success": False,
+                        "message": f"豆包图片生成器初始化失败: {str(e)}"
+                    }
+            else:
+                # 纯文生图，使用BetterYeah生成器
+                print(f"[调度器] 纯文生图，使用BetterYeah图片生成器")
+                from agent.tools.generate.images.betteryeah_generator import BetterYeahImageGenerator, BetterYeahConfig
+                from agent.api.common import load_betteryeah_config
+                
+                try:
+                    config = load_betteryeah_config()
+                    generator = BetterYeahImageGenerator(config)
+                    print(f"[调度器] ✓ BetterYeah图片生成器初始化成功")
+                except Exception as e:
+                    print(f"[调度器] ✗ BetterYeah图片生成器初始化失败: {e}")
+                    return {
+                        "success": False,
+                        "message": f"BetterYeah图片生成器初始化失败: {str(e)}"
+                    }
+        elif generator_type == "betteryeah":
+            print(f"[调度器] 使用BetterYeah图片生成器")
+            from agent.tools.generate.images.betteryeah_generator import BetterYeahImageGenerator, BetterYeahConfig
+            from agent.api.common import load_betteryeah_config
+            
+            try:
+                config = load_betteryeah_config()
+                generator = BetterYeahImageGenerator(config)
+                print(f"[调度器] ✓ BetterYeah图片生成器初始化成功")
+            except Exception as e:
+                print(f"[调度器] ✗ BetterYeah图片生成器初始化失败: {e}")
+                return {
+                    "success": False,
+                    "message": f"BetterYeah图片生成器初始化失败: {str(e)}"
+                }
+        else:
+            return {
+                "success": False,
+                "message": f"不支持的图片生成器类型: {generator_type}，支持的类型: doubao, betteryeah"
+            }
+        
+        # 准备参考图片参数
+        reference_image = None
+        if image_file:
+            print(f"[调度器] 构建reference_image - image_file前100字符: {image_file[:100]}")
+            # 判断是文件路径还是base64数据
+            if image_file.startswith('file://'):
+                # 是文件路径，直接使用
+                reference_image = image_file
+                print(f"[调度器] 使用文件路径: {reference_image}")
+            elif image_file.startswith('data:image/'):
+                # 已经是data URL格式，直接使用
+                reference_image = image_file
+                print(f"[调度器] 直接使用已有data:image格式: {reference_image[:100]}")
+            else:
+                # 假设是base64编码，添加data URL前缀
+                reference_image = f"data:image/jpeg;base64,{image_file}"
+                print(f"[调度器] 添加data:image前缀: {reference_image[:100]}")
+        else:
+            print(f"[调度器] 没有image_file，reference_image保持为None")
+        
+        # 如果没有参考图片，强制使用BetterYeah生成器
+        if not reference_image and generator_type == "doubao":
+            print(f"[调度器] 没有参考图片，强制使用BetterYeah生成器")
+            from agent.tools.generate.images.betteryeah_generator import BetterYeahImageGenerator, BetterYeahConfig
+            from agent.api.common import load_betteryeah_config
+            
+            try:
+                config = load_betteryeah_config()
+                generator = BetterYeahImageGenerator(config)
+                print(f"[调度器] ✓ BetterYeah图片生成器初始化成功")
+            except Exception as e:
+                print(f"[调度器] ✗ BetterYeah图片生成器初始化失败: {e}")
+                return {
+                    "success": False,
+                    "message": f"BetterYeah图片生成器初始化失败: {str(e)}"
+                }
+        
+        # 调用生成工具
+        result = await generator.generate_video(  # 豆包生成器的方法名是generate_video，但实际生成图片
+            prompt=prompt,
+            resolution=resolution,
+            reference_image=reference_image
         )
         
         return result
@@ -390,36 +753,92 @@ class AgentScheduler:
         **kwargs
     ) -> Dict[str, Any]:
         """处理普通对话"""
-        # TODO: 集成对话LLM
-        return {
-            "success": True,
-            "message": "普通对话功能待实现，当前仅支持视频生成和分析。",
-            "user_input": user_input
-        }
+        try:
+            # 获取对话历史作为上下文
+            history = self._get_context_for_intent_recognition()
+            
+            # 构建对话消息
+            messages = []
+            
+            # 添加系统提示
+            messages.append({
+                "role": "system",
+                "content": "你是一个友好的AI助手，可以进行日常对话。如果用户询问视频或图片生成相关的问题，请引导他们使用相应的功能。"
+            })
+            
+            # 添加历史对话（最近几条）
+            for msg in history[-6:]:  # 只取最近6条避免太长
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+            
+            # 添加当前用户输入
+            messages.append({
+                "role": "user", 
+                "content": user_input
+            })
+            
+            # 调用LLM
+            from agent.api.common import load_config
+            import aiohttp
+            import json
+            
+            config = load_config()
+            text_llm_config = config.get("textLLM", {})
+            
+            if not text_llm_config:
+                return {
+                    "success": False,
+                    "message": "对话功能未配置，请联系管理员。"
+                }
+            
+            api_key = text_llm_config.get("apiKey", "")
+            base_url = text_llm_config.get("baseUrl", "")
+            model = text_llm_config.get("model", "gpt-4o")
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{base_url}/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        assistant_reply = result.get("choices", [{}])[0].get("message", {}).get("content", "抱歉，我无法理解您的问题。")
+                        
+                        return {
+                            "success": True,
+                            "message": assistant_reply
+                        }
+                    else:
+                        error_text = await response.text()
+                        print(f"[聊天] LLM API调用失败: {response.status} - {error_text}")
+                        return {
+                            "success": False,
+                            "message": "对话服务暂时不可用，请稍后再试。"
+                        }
+                        
+        except Exception as e:
+            print(f"[聊天] 处理对话时出错: {e}")
+            return {
+                "success": False,
+                "message": "对话处理出错，请稍后再试。"
+            }
     
-    def _create_video_generator(self) -> JianyingVideoGenerator:
-        """创建视频生成器（从配置加载）"""
-        from pathlib import Path
-        import yaml
-        
-        config_path = Path(__file__).parent.parent / "config" / "index.yml"
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        jianying_cfg = config.get("jianyingAPI", {})
-        
-        jianying_config = JianyingConfig(
-            web_id=jianying_cfg.get("webId", ""),
-            ms_token=jianying_cfg.get("msToken", ""),
-            generate_sign=jianying_cfg.get("generateSign", ""),
-            status_sign=jianying_cfg.get("statusSign", ""),
-            generate_a_bogus=jianying_cfg.get("generateABogus", ""),
-            status_a_bogus=jianying_cfg.get("statusABogus", ""),
-            cookies=jianying_cfg.get("cookies", {})
-        )
-        
-        return JianyingVideoGenerator(jianying_config)
     
     def _get_timestamp(self) -> int:
         """获取当前时间戳"""

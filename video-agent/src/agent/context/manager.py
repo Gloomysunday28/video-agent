@@ -64,9 +64,10 @@ class ContextManager:
         self.memory_store = MemoryStore(max_tokens=max_context_length)
         self.vector_store = VectorStore(
             persist_path=vector_store_path,
-            embedding_api_url=llm_api_url,  # 复用 LLM API
-            embedding_api_key=llm_api_key,
-            embedding_model="text-embedding-3-small"
+            # 禁用API embedding，直接使用简化版
+            embedding_api_url=None,
+            embedding_api_key=None,
+            embedding_model="simple"
         )
         
         # 初始化压缩工具

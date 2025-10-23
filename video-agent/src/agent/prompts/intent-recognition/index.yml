@@ -8,6 +8,7 @@ intent_recognition_prompt: |
 
   可选的意图类型：
   - generate_video: 生成视频
+  - generate_image: 生成图片
   - edit_video: 编辑视频
   - analyze_video: 分析视频
   - chat: 普通聊天
@@ -45,6 +46,31 @@ intent_types:
       - generate video
       - create video
       - make video
+  
+  generate_image:
+    name: 生成图片
+    description: 用户想要生成、创建图片/照片/海报等
+    keywords:
+      - 生成图片
+      - 生成一张图
+      - 生成一张图片
+      - 生成照片
+      - 做一张图
+      - 做一张图片
+      - 画一张图
+      - 画图
+      - 制作图片
+      - 海报
+      - 壁纸
+      - 头像
+      - 插画
+      - 图片
+      - 照片
+      - image
+      - picture
+      - photo
+      - poster
+      - wallpaper
     
   edit_video:
     name: 编辑视频

@@ -37,7 +37,7 @@ class VectorStore:
         persist_path: Optional[str] = None,
         embedding_api_url: Optional[str] = None,
         embedding_api_key: Optional[str] = None,
-        embedding_model: str = "text-embedding-3-small"
+        embedding_model: str = "text-embedding-ada-002"
     ):
         """
         初始化向量存储
@@ -92,23 +92,58 @@ class VectorStore:
     
     def _compute_embedding_simple(self, text: str) -> List[float]:
         """
-        计算文本嵌入（简化版）
-        使用简单的字符频率作为特征向量
+        计算文本嵌入（优化版）
+        使用词频、字符频率和文本特征的组合
         """
+        import re
+        
+        # 1. 词频统计
+        words = re.findall(r'\b\w+\b', text.lower())
+        word_freq = {}
+        for word in words:
+            word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # 2. 字符频率统计
         char_freq = {}
         for char in text.lower():
-            char_freq[char] = char_freq.get(char, 0) + 1
+            if char.isalnum() or char.isspace():
+                char_freq[char] = char_freq.get(char, 0) + 1
         
-        # 转换为固定长度向量（取前100个最常见字符）
-        all_chars = sorted(char_freq.items(), key=lambda x: x[1], reverse=True)[:100]
-        embedding = [freq for _, freq in all_chars]
+        # 3. 文本特征
+        text_features = [
+            len(text),  # 文本长度
+            len(words),  # 词数
+            len(set(words)) if words else 0,  # 唯一词数
+            text.count('?'),  # 问号数量
+            text.count('!'),  # 感叹号数量
+            text.count('.'),  # 句号数量
+            sum(1 for c in text if c.isupper()),  # 大写字母数量
+            sum(1 for c in text if c.isdigit()),  # 数字数量
+        ]
         
-        # 归一化
-        if embedding:
-            max_freq = max(embedding)
-            embedding = [f / max_freq for f in embedding]
+        # 4. 组合特征向量
+        embedding = []
         
-        # 补齐到固定长度
+        # 添加标准化的文本特征 (8维)
+        max_feature = max(text_features) if text_features and max(text_features) > 0 else 1
+        embedding.extend([f / max_feature for f in text_features])
+        
+        # 添加前30个最常见词的频率 (30维)
+        top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:30]
+        word_freqs = [freq for _, freq in top_words]
+        if word_freqs:
+            max_word_freq = max(word_freqs)
+            embedding.extend([f / max_word_freq for f in word_freqs])
+        
+        # 添加前62个最常见字符的频率 (62维，总共100维)
+        remaining_dims = 100 - len(embedding)
+        top_chars = sorted(char_freq.items(), key=lambda x: x[1], reverse=True)[:remaining_dims]
+        char_freqs = [freq for _, freq in top_chars]
+        if char_freqs:
+            max_char_freq = max(char_freqs)
+            embedding.extend([f / max_char_freq for f in char_freqs])
+        
+        # 确保向量长度为100
         while len(embedding) < 100:
             embedding.append(0.0)
         

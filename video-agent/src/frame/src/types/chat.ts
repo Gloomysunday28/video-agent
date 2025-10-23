@@ -1,10 +1,16 @@
 export interface Message {
-  role: 'user' | 'assistant' | 'error'
+  role: 'user' | 'assistant' | 'error' | 'system'
   content: string
+  contentType?: 'text' | 'video' | 'image' | 'file'  // 重命名为 contentType 避免与 SSE 的 type 冲突
   intent?: string
   timestamp?: number
   metadata?: {
     title?: string
+    task_id?: string
+    status?: string
+    progress?: number
+    isFinalReply?: boolean
+    isStatusUpdate?: boolean
     [key: string]: unknown
   }
 }
@@ -25,7 +31,7 @@ export interface ChatResponse {
   intent?: string
   confidence?: number
   message?: string
-  result?: any
-  context_info?: any
+  result?: unknown
+  context_info?: unknown
   error?: string
 }

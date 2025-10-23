@@ -894,6 +894,217 @@
   cursor: not-allowed;
 }
 
+/* WebSocket状态栏 */
+.websocket-status-bar {
+  padding: 6px 16px;
+  background: linear-gradient(90deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-bottom: 1px solid #bae6fd;
+  font-size: 0.8rem;
+  animation: slideInDown 0.3s ease-out;
+}
+
+@keyframes slideInDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.realtime-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0369a1;
+  font-weight: 500;
+}
+
+.realtime-status.disconnected {
+  background: linear-gradient(90deg, #fef2f2 0%, #fee2e2 100%);
+  border-bottom: 1px solid #fecaca;
+  color: #dc2626;
+}
+
+.realtime-status.active {
+  color: #0369a1;
+}
+
+.status-icon {
+  font-size: 0.9rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.current-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.task-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.task-message {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-progress {
+  font-weight: 600;
+  color: #0369a1;
+  background: rgba(3, 105, 161, 0.1);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* 任务状态容器 */
+.task-status-container {
+  max-height: 200px;
+  overflow-y: auto;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fafbfc;
+}
+
+.task-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px;
+}
+
+.task-status {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #3b82f6;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.task-status-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.task-status-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.task-status-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-status-message {
+  font-weight: 500;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.task-status-id {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-family: monospace;
+}
+
+.task-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.task-status-time {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.task-status-dismiss {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.task-status-dismiss:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+/* 进度条 */
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+/* 详细信息 */
+.task-status-details {
+  margin-top: 8px;
+}
+
+.task-status-details summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #6b7280;
+  padding: 4px 0;
+}
+
+.task-status-details summary:hover {
+  color: #374151;
+}
+
+.task-status-data {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 0.75rem;
+  color: #374151;
+  margin-top: 4px;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 /* 打字指示器 */
 .typing-indicator {
   display: flex;
@@ -969,4 +1180,161 @@
   justify-content: flex-end;
   margin-top: 0.5rem;
 }
+
+/* 状态消息样式 */
+.status-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-message span {
+  color: #334155;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  animation: progress-shimmer 2s infinite;
+}
+
+@keyframes progress-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+/* 生成器选择器样式 */
+.generator-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+}
+
+.generator-selector label {
+  color: #4a5568;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.generator-select {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  color: #374151;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 120px;
+}
+
+.generator-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.generator-select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* 已上传文件信息（支持多种文件类型） */
+.uploaded-file-info {
+  padding: 0 1.5rem 1rem 1.5rem;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #e6f3ff;
+  border: 1px solid #4f46e5;
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.file-name {
+  flex: 1;
+  font-weight: 500;
+  color: #2d3748;
+  word-break: break-all;
+}
+
+.clear-file-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+}
+
+.clear-file-btn:hover {
+  background: #dc2626;
+}
+
+/* 统一文件上传按钮样式 */
+.file-upload-btn {
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+}
+
+.file-upload-btn:hover {
+  background: #5b21b6;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(99, 102, 241, 0.3);
+}
+
+.file-upload-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 

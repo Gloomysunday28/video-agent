@@ -8,14 +8,58 @@ visionLLM:
   baseUrl: https://openkey.bantouyan.com
   model: gemini-2.5-flash
 
+# 豆包视频生成API配置
+doubaoAPI:
+  apiKey: "64b61f52-9389-4fd3-b247-3c6357786e18"
+  model: "doubao-seedream-4-0-250828"
+  timeout: 300
+
+# Bantouyan图片生成API配置
+bantouyangAPI:
+  apiKey: "sk-Xvm7jx079tPrCQaV9a2u7w"
+  baseUrl: "https://openkey.bantouyan.com"
+  model: "dall-e-3"
+  timeout: 300
+
+# BetterYeah文生图API配置
+betteryeahAPI:
+  apiUrl: "https://pre-ai-api.betteryeah.com/v1/public_api/rest_api/44c1bcc473f447748d46bd5f313bfd24/execute_flow"
+  accessKey: "NjUyNjA2YWQ2YjI5MmI0NjM4N2RlNTMxLDU3NTYsMTcwMTQyMjAwNzA3NQ=="
+  workspaceId: "652606ad6b292b46387de531"
+  timeout: 300
+
 # 剪映视频生成API配置
 jianyingAPI:
   webId: "7537987985893295667"
-  msToken: "r2x9AF3dAqUa8qQ8lEtVPKSuzVx2dHF96xFvqOaTF74MNAP9nOTRMy7KPx5Yiq062XtdbHN2yJWb6blITzIdU-1XF6eftMAaKyhjgFttb86qD2JjpPALd4je7SoV4Bo="
-  generateSign: "a9d4740de3fd4dfff79d40f0553259d6"
+  msToken: "2SkvpX5qgReQO09JuZvBzo6u8uEqEu63lqRZsJr8L-fM562HBld6MRLW3NAZkqA8H544nCJW7GZs3BqwS7S9jUUrxNYMETpbehD1WBUjDJ6RuwhvF_yg3Nrvr0Pss8M="
+  generateSign: "1cbcaa0ceff13b483bee52ef2e239f8e"
   statusSign: "4b8238b1156833f21a61bbfb1e396caa"
-  generateABogus: "Y6BEgOhGMsm1MPUdJ7kz9eT-yGy0YW5FgZENQecmHtwy"
+  generateABogus: "x6UDDch7Msm1qva9WXkz9GMhjnj0YW5bgZENsyEGr0LT"
   statusABogus: "DvUQXOhGMsm1auUdJwkz9H79yH80YW4ogZENQetohzwC"
   cookies:
-    # 从浏览器复制实际的cookies
-    # 格式: cookie_name: cookie_value
+    _tea_utm_cache_513695: "{%22utm_source%22:%22aibot%22%2C%22utm_medium%22:%22aitools%22%2C%22utm_campaign%22:%22null%22%2C%22utm_content%22:%22hw_jm_aibot%22}"
+    fpk1: "2c6acbfcaf8f926a4f2443b37523d80580e0ea297fa5f6b58672b254afac04a966efddbe49def8366ccee95e86904a9d"
+    _tea_utm_cache_2018: "{%22utm_source%22:%22aibot%22%2C%22utm_medium%22:%22aitools%22%2C%22utm_campaign%22:%22null%22%2C%22utm_content%22:%22hw_jm_aibot%22}"
+    is_staff_user: "false"
+    s_v_web_id: "verify_mgq8wz1f_Eip8yaUt_NgFw_4ro5_BxlW_MT9CAR0cY6KA"
+    passport_csrf_token: "9fe48cdb97bba5f2d4729d52772f62e5"
+    passport_csrf_token_default: "9fe48cdb97bba5f2d4729d52772f62e5"
+    n_mh: "SduwPHZr6ew6z8ENlohAFjGKyckA_3B7oD59yBSRP6o"
+    sid_guard: "c786aeb9617c2e8be4e72dd4b9d5923c%7C1760427278%7C31536000%7CWed%2C+14-Oct-2026+07%3A34%3A38+GMT"
+    uid_tt: "c7dcc60cc652abeae7f51c6d72c82fc9"
+    uid_tt_ss: "c7dcc60cc652abeae7f51c6d72c82fc9"
+    sid_tt: "c786aeb9617c2e8be4e72dd4b9d5923c"
+    sessionid: "c786aeb9617c2e8be4e72dd4b9d5923c"
+    sessionid_ss: "c786aeb9617c2e8be4e72dd4b9d5923c"
+    session_tlb_tag: "sttt%7C3%7Cx4auuWF8Lovk5y3UudWSPP_________g64QecQnDbahteAVoZA2T6RwbW7LgnBBVm0GcQFOvUZw%3D"
+    sid_ucp_v1: "1.0.0-KDJiMmJiZGRkNThjNmU1YTMyNTcwODAxZTZjMzNjNzc3OWYxZWQzZTUKHwiKndC6z8zuAxCO-rfHBhifrR8gDDD9672qBjgIQCYaAmxxIiBjNzg2YWViOTYxN2MyZThiZTRlNzJkZDRiOWQ1OTIzYw"
+    ssid_ucp_v1: "1.0.0-KDJiMmJiZGRkNThjNmU1YTMyNTcwODAxZTZjMzNjNzc3OWYxZWQzZTUKHwiKndC6z8zuAxCO-rfHBhifrR8gDDD9672qBjgIQCYaAmxxIiBjNzg2YWViOTYxN2MyZThiZTRlNzJkZDRiOWQ1OTIzYw"
+    user_spaces_idc: "{\"7300183389712154934\":\"hl\"}"
+    dm_auid: "+tuekyNeflgq3uQvfAN1XBA8EOt/vkUVpaywJQJysYo="
+    uifid_temp: "3cb0b801bef31059e7362f18815df4e42e6178036f1641fa6e1595283a45c41fb670ece6d0da3d40fc57a5e4a91d25cdad3dcb2eeb2f82666d8b28beaf0534c2d3cd6fce414cb37cdcc0fc1f905d4afaa5739e1dbfc4664621863dbe500636620cd04542c0c02df8e8ffb97589a101da"
+    uifid: "3cb0b801bef31059e7362f18815df4e42e6178036f1641fa6e1595283a45c41f6a3e2bf0968b8e3b0f7303cc5926e5d177fb8ab5c853457a2e66f8e4a137a88686f9432b6dce393c5292dd1dc6094d401e2dfb8a818cf7909d7b064ae0d4a0cab789a25c8eec12eaf58feb622ffaee02707152122e4ced48cd0168f0980e2a3c348715bfa8370ae6f3f98091bc198f76033593a1cd971a0ede9c21df66c85a433e1d428cc7cfce74ff93a03dc933300aae776cc097b28237dcf02208da69e27c"
+    _tea_web_id: "7537987985893295667"
+    ttwid: "1|SCekOUxs0DgN_29QwDHod3CE1a-bdCZDSFyMrqiyEFc|1760618388|df6f4ef8f2fdf6c9e8e484247c2b777b2a9ef128bae332e0da304aea65bedfcd"
+    _uetsid: "334769a0aa8d11f086bc23a72604df9c"
+    _uetvid: "95784140782111f0825a610ee5c6e7f3"
+    odin_tt: "76996bf401fb1e90deee03bfec5320a540e8b84319d848ef940aacda6060f3e559daf346ad07bd4d7b9c06b5cd436cfbd5948d29a74c7c1e31b3abcce90d8d06"

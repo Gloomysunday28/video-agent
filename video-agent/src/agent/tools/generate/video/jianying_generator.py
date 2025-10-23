@@ -170,7 +170,14 @@ class JianyingVideoGenerator:
         aspect_ratio: str = "16:9",
         duration: int = 5,
         resolution: str = "720p",
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        # 透传可选参数（用于复用浏览器抓包得到的时效签名/头）
+        override_sign: Optional[str] = None,
+        override_a_bogus: Optional[str] = None,
+        override_ms_token: Optional[str] = None,
+        override_device_time: Optional[str] = None,
+        override_referer: Optional[str] = None,
+        override_cookies: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         生成视频
@@ -239,26 +246,33 @@ class JianyingVideoGenerator:
         
         # 构建URL
         params = self._build_common_params(
-            sign=self.config.generate_sign,
-            a_bogus=self.config.generate_a_bogus
+            sign=(override_sign or self.config.generate_sign),
+            a_bogus=(override_a_bogus or self.config.generate_a_bogus)
         )
+        # 覆盖 msToken（若外部传入）
+        if override_ms_token:
+            params["msToken"] = override_ms_token
         params["web_component_open_flag"] = "1"
         
         url = f"{self.config.base_url}/v1/aigc_draft/generate"
         
         # 构建headers
         headers = self._build_common_headers(
-            sign=self.config.generate_sign,
-            referer="https://jimeng.jianying.com/ai-tool/home?type=video"
+            sign=(override_sign or self.config.generate_sign),
+            referer=(override_referer or "https://jimeng.jianying.com/ai-tool/home?type=video")
         )
+        if override_device_time:
+            headers["device-time"] = override_device_time
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # 增加超时时间到60秒，因为剪映API可能比较慢
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                print(f"正在调用剪映API: {url}")
                 response = await client.post(
                     url,
                     params=params,
                     headers=headers,
-                    cookies=self.config.cookies,
+                    cookies=(override_cookies or self.config.cookies),
                     json=body
                 )
                 
@@ -341,14 +355,38 @@ class JianyingVideoGenerator:
                     result = response.json()
                     
                     # 解析状态
-                    # TODO: 根据实际API响应格式解析状态
-                    
-                    return {
-                        "success": True,
-                        "status": "unknown",
-                        "message": "状态查询成功",
-                        "raw_response": result
-                    }
+                    try:
+                        # 根据实际API响应格式解析状态
+                        # 假设响应格式为: {"data": [{"status": "completed", "video_url": "..."}]}
+                        data = result.get("data", [])
+                        if data and len(data) > 0:
+                            video_data = data[0]
+                            status = video_data.get("status", "unknown")
+                            video_url = video_data.get("video_url", "")
+                            message = video_data.get("message", "状态查询成功")
+                            
+                            return {
+                                "success": True,
+                                "status": status,
+                                "video_url": video_url,
+                                "message": message,
+                                "raw_response": result
+                            }
+                        else:
+                            return {
+                                "success": True,
+                                "status": "pending",
+                                "message": "视频还在生成中",
+                                "raw_response": result
+                            }
+                    except Exception as parse_error:
+                        # 如果解析失败，返回原始响应
+                        return {
+                            "success": True,
+                            "status": "unknown",
+                            "message": f"状态查询成功，但解析失败: {str(parse_error)}",
+                            "raw_response": result
+                        }
                 else:
                     return {
                         "success": False,

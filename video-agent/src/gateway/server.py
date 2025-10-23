@@ -4,9 +4,10 @@ FastAPI 服务器 - 同时提供 API 和静态前端文件
 """
 
 from pathlib import Path
-from fastapi import FastAPI, APIRouter, Request
+from fastapi import FastAPI, APIRouter, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+import json
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import httpx
@@ -23,7 +24,7 @@ app = FastAPI(
 # CORS 配置（开发环境需要）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React 开发服务器
+    allow_origins=["*"],  # React 开发服务器
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,6 +32,55 @@ app.add_middleware(
 
 # 创建 API 路由
 api_router = APIRouter(prefix="/api")
+
+# 导入API路由
+from agent.api import chat, video_analysis, video_generate
+from agent.api.sse import register_connection, unregister_connection
+
+# 注意：各模块路由已自带 "/api/..." 前缀，避免重复挂载到 api_router('/api') 下
+# 仅在此文件中直接把这些路由挂到 app（见下方 app.include_router(...)）
+
+# 连接在每次请求内注册
+
+@api_router.get("/events/{session_id}")
+async def stream_events(session_id: str):
+    """SSE事件流端点"""
+    
+    async def event_generator():
+        # 注册一个新的连接队列
+        connection_queue = register_connection(session_id)
+        
+        try:
+            # 发送连接确认
+            yield f"data: {json.dumps({'type': 'connected', 'session_id': session_id})}\n\n"
+            
+            # 保持连接活跃，发送心跳
+            while True:
+                try:
+                    # 等待消息或超时
+                    message = await asyncio.wait_for(connection_queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    # 发送心跳
+                    yield f"data: {json.dumps({'type': 'ping', 'timestamp': asyncio.get_event_loop().time()})}\n\n"
+                except Exception as e:
+                    print(f"SSE连接错误: {e}")
+                    break
+                    
+        finally:
+            # 清理连接
+            unregister_connection(session_id, connection_queue)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control"
+        }
+    )
 
 
 @api_router.get("/health")
@@ -49,6 +99,22 @@ async def list_videos():
         ]
     }
 
+@api_router.get("/generated_videos/{filename}")
+async def get_generated_video(filename: str):
+    """获取生成的视频文件"""
+    project_root = Path(__file__).parent.parent.parent
+    video_path = project_root / "src" / "agent" / "tools" / "generate" / "generated_videos" / filename
+    
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    
+    return FileResponse(
+        video_path,
+        media_type="video/mp4",
+        filename=filename
+    )
+
+
 
 @api_router.post("/videos/process")
 async def process_video(video_id: int):
@@ -60,10 +126,10 @@ async def process_video(video_id: int):
     }
 
 
-# 注册 API 路由
+# 注册 API 路由（仅注册此文件中定义的 /api 子路由）
 app.include_router(api_router)
 
-# 导入并注册视频生成 API
+# 导入并注册视频生成 API（模块内已带 /api 前缀，直接挂载到 app）
 try:
     from agent.api.video_generate import router as video_generate_router
     app.include_router(video_generate_router)
@@ -71,7 +137,7 @@ try:
 except ImportError as e:
     print(f"⚠️  警告: 无法导入视频生成 API: {e}")
 
-# 导入并注册视频识别 API
+# 导入并注册视频识别 API（模块内已带 /api 前缀，直接挂载到 app）
 try:
     from agent.api.video_analysis import router as video_analysis_router
     app.include_router(video_analysis_router)
@@ -79,7 +145,7 @@ try:
 except ImportError as e:
     print(f"⚠️  警告: 无法导入视频识别 API: {e}")
 
-# 导入并注册聊天 API
+# 导入并注册聊天 API（模块内已带 /api 前缀，直接挂载到 app）
 try:
     from agent.api.chat import router as chat_router
     app.include_router(chat_router)
@@ -119,6 +185,8 @@ async def startup_event():
     # 设置特定模块的日志级别
     logging.getLogger('agent.tools.vision.video_analyzer').setLevel(logging.INFO)
     logging.getLogger('agent.api.video_analysis').setLevel(logging.INFO)
+    logging.getLogger('agent.core.scheduler').setLevel(logging.INFO)
+    logging.getLogger('agent.tools.generate').setLevel(logging.INFO)
     
     global cleaner_task
     
@@ -157,52 +225,45 @@ async def shutdown_event():
 
 
 if DEV_MODE:
-    # 开发模式：代理到 Vite 开发服务器
-    @app.get("/{full_path:path}")
+    # 开发模式：作为反向代理转发到 Vite 开发服务器（不重定向，端口保持 8000）
+    @app.api_route("/{full_path:path}", methods=["GET"])
     async def proxy_to_vite(request: Request, full_path: str):
         """
-        开发模式：代理所有非 /api 请求到 Vite 开发服务器
+        开发模式：所有非 /api 请求通过网关转发到 Vite 开发服务器
+        - 不使用 3xx 重定向，保持在 8000 端口访问前端
+        - 仅处理 GET 静态资源与页面请求
         """
-        # 跳过 API 路由
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        
-        # 构建目标 URL
-        target_url = f"{VITE_DEV_SERVER}/{full_path}"
+
+        target_url = f"{VITE_DEV_SERVER}/{full_path}" if full_path else VITE_DEV_SERVER
         if request.url.query:
             target_url = f"{target_url}?{request.url.query}"
-        
+
         try:
-            # 转发请求到 Vite 开发服务器
-            response = await http_client.request(
-                method=request.method,
-                url=target_url,
-                headers={
-                    key: value for key, value in request.headers.items()
-                    if key.lower() not in ["host", "connection"]
-                },
-                content=await request.body() if request.method in ["POST", "PUT", "PATCH"] else None,
+            # 透传 headers 中与缓存/类型相关的关键头
+            headers = {k: v for k, v in request.headers.items() if k.lower() in [
+                "accept", "accept-encoding", "user-agent", "cache-control"
+            ]}
+
+            resp = await http_client.get(target_url, headers=headers)
+
+            # 读取响应内容为字节，避免二次消费导致的 StreamConsumed
+            content_bytes = await resp.aread()
+
+            # 过滤不应透传的头
+            excluded = {"content-encoding", "transfer-encoding", "connection"}
+            response_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded}
+
+            from fastapi.responses import Response
+            return Response(
+                content=content_bytes,
+                status_code=resp.status_code,
+                headers=response_headers,
+                media_type=resp.headers.get("content-type")
             )
-            
-            # 返回响应
-            return StreamingResponse(
-                response.aiter_bytes(),
-                status_code=response.status_code,
-                headers={
-                    key: value for key, value in response.headers.items()
-                    if key.lower() not in ["content-encoding", "content-length", "transfer-encoding", "connection"]
-                },
-            )
-        except Exception as e:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "error": "前端开发服务器未启动",
-                    "message": f"无法连接到 {VITE_DEV_SERVER}",
-                    "detail": str(e),
-                    "hint": "请在另一个终端运行: cd src/frame && npm run dev"
-                }
-            )
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Proxy to Vite failed: {e}")
 else:
     # 生产模式：提供静态文件
     # 挂载静态资源（JS, CSS, 图片等）
@@ -236,7 +297,14 @@ def start_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
         host=host,
         port=port,
         reload=reload,
-        log_level="info"
+        log_level="info",
+        # 增加URL长度限制
+        limit_max_requests=1000,
+        limit_concurrency=1000,
+        # 增加请求体大小限制
+        limit_request_line=8192,  # 默认4096，增加到8192
+        limit_request_fields=100,
+        limit_request_field_size=8192
     )
 
 

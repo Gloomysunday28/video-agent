@@ -16,11 +16,7 @@
 
 ```bash
 # 一键启动（推荐）
-./dev.sh
-
-# 或者手动启动
-pip install -e .
-python src/gateway/dev.py
+./build-script/start.sh
 ```
 
 启动后访问：
@@ -32,7 +28,7 @@ python src/gateway/dev.py
 
 ```bash
 # 构建前端和安装依赖
-./build.sh
+./build-script/build.sh
 
 # 启动服务
 cd src
