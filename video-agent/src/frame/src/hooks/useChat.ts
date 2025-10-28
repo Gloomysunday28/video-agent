@@ -28,23 +28,23 @@ export function useChat(sessionId: string) {
   
   const { messages, isLoadingHistory, addUserMessage, addAssistantMessage, addErrorMessage, addSystemMessage, addAssistantReply, clearMessages } = useMessages(sessionId)
   const { refreshSessions } = useSessions()
-  const activeEventSourceRef = useRef<EventSource | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  // 当sessionId变化时，关闭现有的SSE连接
+  // 当sessionId变化时，取消现有的流式连接
   useEffect(() => {
     return () => {
-      closeActiveEventSource()
+      cancelActiveStream()
     }
   }, [sessionId])
 
-  const closeActiveEventSource = () => {
-    if (activeEventSourceRef.current) {
+  const cancelActiveStream = () => {
+    if (abortControllerRef.current) {
       try {
-        activeEventSourceRef.current.close()
+        abortControllerRef.current.abort()
       } catch {
         // ignore
       }
-      activeEventSourceRef.current = null
+      abortControllerRef.current = null
     }
   }
 
@@ -77,7 +77,8 @@ export function useChat(sessionId: string) {
     } else if (message.type === 'assistant_reply') {
       // 处理助手回复消息
       console.log('[useChat] 接收到assistant_reply:', message)
-      addAssistantReply(message as unknown as { content: string; timestamp: string; task_id: string; message_type?: string })
+      const reply = message as unknown as { content: string; timestamp: string; task_id: string; message_type?: string }
+      addAssistantReply(reply)
     }
   }
 
@@ -101,42 +102,92 @@ export function useChat(sessionId: string) {
     try {
       // 如果没有上传视频，优先使用新的 SSE 流式接口（图片文件也走SSE）
       if (!videoFile) {
-        const params = new URLSearchParams()
-        params.set('session_id', sessionId)
-        params.set('message', userMessage)
-        params.set('generator_type', generatorType) // 添加生成器类型参数
-        if (videoFilename) params.set('video_filename', String(videoFilename))
-        if (imageFile) params.set('image_file', imageFile)
-        if (imageFilename) params.set('image_filename', String(imageFilename))
-
-        // 确保同一时间只有一条 SSE 连接
-        closeActiveEventSource()
-        const es = new EventSource(`/api/chat/stream?${params.toString()}`)
-        activeEventSourceRef.current = es
-
-        es.onopen = () => {
-          console.log('[SSE] connection opened')
+        const requestBody = {
+          session_id: sessionId,
+          message: userMessage,
+          generator_type: generatorType,
+          video_filename: videoFilename || undefined,
+          image_file: imageFile || undefined,
+          image_filename: imageFilename || undefined,
         }
 
-        es.onmessage = (event) => {
+        // 确保同一时间只有一条连接
+        cancelActiveStream()
+        
+        // 创建新的 AbortController
+        const abortController = new AbortController()
+        abortControllerRef.current = abortController
+        
+        const response = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (!reader) {
+          throw new Error('无法获取响应流')
+        }
+
+        console.log('[SSE] connection opened (fetch stream)')
+
+        const processStream = async () => {
           try {
-            const msg = JSON.parse(event.data)
-            handleWebSocketMessage(msg as unknown as { type: string; [key: string]: unknown })
-            // 仅在收到最终助手回复或失败状态时关闭
-            if (msg.type === 'assistant_reply' || (msg.type === 'task_status' && msg.status === 'failed')) {
-              es.close()
-              setIsLoading(false)
+            let buffer = ''
+            
+            while (true) {
+              const { done, value } = await reader.read()
+              
+              if (done) {
+                console.log('[SSE] stream closed')
+                setIsLoading(false)
+                break
+              }
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const msg = JSON.parse(line.slice(6))
+                    handleWebSocketMessage(msg as unknown as { type: string; [key: string]: unknown })
+                    
+                    // 仅在收到最终助手回复或失败状态时关闭
+                    if (msg.type === 'assistant_reply' || (msg.type === 'task_status' && msg.status === 'failed')) {
+                      reader.cancel()
+                      setIsLoading(false)
+                      return
+                    }
+                  } catch (e) {
+                    console.error('解析SSE消息失败:', e)
+                  }
+                }
+              }
             }
           } catch (e) {
-            console.error('解析SSE消息失败:', e)
+            // 忽略 AbortError（用户主动取消）
+            if (e instanceof Error && e.name === 'AbortError') {
+              console.log('[SSE] stream aborted by user')
+            } else {
+              console.error('SSE 错误:', e)
+              addErrorMessage(e instanceof Error ? e.message : String(e))
+            }
+            setIsLoading(false)
           }
         }
 
-        es.onerror = (e) => {
-          console.error('SSE 错误:', e)
-          closeActiveEventSource()
-          setIsLoading(false)
-        }
+        processStream()
       } else {
         const response = await fetch('/api/chat/', {
           method: 'POST',
@@ -198,39 +249,89 @@ export function useChat(sessionId: string) {
     
     try {
       if (!lastVideoFile && !lastImageFile) {
-        const params = new URLSearchParams()
-        params.set('session_id', sessionId)
-        params.set('message', lastUserMessage)
-        params.set('generator_type', generatorType) // 添加生成器类型参数
-        if (lastVideoFilename) params.set('video_filename', String(lastVideoFilename))
-
-        closeActiveEventSource()
-        const es = new EventSource(`/api/chat/stream?${params.toString()}`)
-        activeEventSourceRef.current = es
-
-        es.onopen = () => {
-          console.log('[SSE][retry] connection opened')
+        const requestBody = {
+          session_id: sessionId,
+          message: lastUserMessage,
+          generator_type: generatorType,
+          video_filename: lastVideoFilename || undefined,
         }
 
-        es.onmessage = (event) => {
+        cancelActiveStream()
+        
+        // 创建新的 AbortController
+        const abortController = new AbortController()
+        abortControllerRef.current = abortController
+        
+        const response = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (!reader) {
+          throw new Error('无法获取响应流')
+        }
+
+        console.log('[SSE][retry] connection opened (fetch stream)')
+
+        const processStream = async () => {
           try {
-            const msg = JSON.parse(event.data)
-            console.log('[SSE][retry] message:', msg)
-            handleWebSocketMessage(msg as unknown as { type: string; [key: string]: unknown })
-            if (msg.type === 'assistant_reply' || (msg.type === 'task_status' && msg.status === 'failed')) {
-              closeActiveEventSource()
-              setIsLoading(false)
+            let buffer = ''
+            
+            while (true) {
+              const { done, value } = await reader.read()
+              
+              if (done) {
+                console.log('[SSE][retry] stream closed')
+                setIsLoading(false)
+                break
+              }
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const msg = JSON.parse(line.slice(6))
+                    console.log('[SSE][retry] message:', msg)
+                    handleWebSocketMessage(msg as unknown as { type: string; [key: string]: unknown })
+                    
+                    if (msg.type === 'assistant_reply' || (msg.type === 'task_status' && msg.status === 'failed')) {
+                      reader.cancel()
+                      setIsLoading(false)
+                      return
+                    }
+                  } catch (e) {
+                    console.error('解析SSE消息失败:', e)
+                  }
+                }
+              }
             }
           } catch (e) {
-            console.error('解析SSE消息失败:', e)
+            // 忽略 AbortError（用户主动取消）
+            if (e instanceof Error && e.name === 'AbortError') {
+              console.log('[SSE][retry] stream aborted by user')
+            } else {
+              console.error('SSE 错误:', e)
+              addErrorMessage(e instanceof Error ? e.message : String(e))
+            }
+            setIsLoading(false)
           }
         }
 
-        es.onerror = (e) => {
-          console.error('SSE 错误:', e)
-          es.close()
-          setIsLoading(false)
-        }
+        processStream()
       } else {
         const response = await fetch('/api/chat/', {
           method: 'POST',

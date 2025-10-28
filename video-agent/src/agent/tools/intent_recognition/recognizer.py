@@ -175,9 +175,23 @@ class IntentRecognizer:
             score = 0
             matched_keywords = []
             for keyword in keywords:
-                if keyword.lower() in text_lower:
-                    score += 1
-                    matched_keywords.append(keyword)
+                keyword_lower = keyword.lower()
+                # 支持正则表达式匹配
+                if '.*' in keyword_lower or '[' in keyword_lower:
+                    try:
+                        if re.search(keyword_lower, text_lower):
+                            score += 1
+                            matched_keywords.append(keyword)
+                    except re.error:
+                        # 如果正则表达式无效，回退到普通匹配
+                        if keyword_lower in text_lower:
+                            score += 1
+                            matched_keywords.append(keyword)
+                else:
+                    # 普通字符串匹配
+                    if keyword_lower in text_lower:
+                        score += 1
+                        matched_keywords.append(keyword)
             
             if score > 0:
                 scores[intent_type] = {

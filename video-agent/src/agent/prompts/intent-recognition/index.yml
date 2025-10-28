@@ -8,7 +8,7 @@ intent_recognition_prompt: |
 
   可选的意图类型：
   - generate_video: 生成视频
-  - generate_image: 生成图片
+  - generate_image: 生成图片（包括图生图，即基于现有图片进行修改）
   - edit_video: 编辑视频
   - analyze_video: 分析视频
   - chat: 普通聊天
@@ -16,6 +16,12 @@ intent_recognition_prompt: |
   - help: 帮助
   - settings: 设置
   - unknown: 未知
+
+  **重要规则：**
+  - 如果对话历史中最近有助手生成的图片，且用户要求"修改"、"加上"、"换成"、"改成"等修改类操作，应识别为 generate_image（图生图）
+  - 例如：用户说"给他加个帽子"、"换个颜色"、"改成红色"等，如果上下文中有图片，都应该是 generate_image
+  - 如果对话历史中最近有助手生成的图片，且用户要求"动起来"、"让他动"、"转成视频"等，应识别为 generate_video（图生视频）
+  - 例如：用户说"让他动起来"、"生成视频"、"转成视频"等，如果上下文中有图片，都应该是 generate_video
 
   用户输入：{user_input}
 
@@ -36,20 +42,34 @@ fallback_prompt: |
 intent_types:
   generate_video:
     name: 生成视频
-    description: 用户想要生成、创建、制作新视频
+    description: 用户想要生成、创建、制作新视频（包括图生视频）
     keywords:
       - 生成视频
+      - 生成.*视频
       - 创建视频
       - 制作视频
       - 做个视频
       - 做一个视频
+      - .*的视频
+      - 动起来
+      - 让他动
+      - 让它动
+      - 让这个动
+      - 动态化
+      - 转成视频
+      - 变成视频
+      - 生成动画
+      - 做成动画
+      - animate
       - generate video
       - create video
       - make video
+      - to video
+      - make it move
   
   generate_image:
     name: 生成图片
-    description: 用户想要生成、创建图片/照片/海报等
+    description: 用户想要生成、创建或修改图片/照片/海报等（包括图生图）
     keywords:
       - 生成图片
       - 生成一张图
@@ -66,11 +86,23 @@ intent_types:
       - 插画
       - 图片
       - 照片
+      - 修改图片
+      - 改图
+      - 加上
+      - 带上
+      - 换成
+      - 改成
+      - 变成
+      - 加个
+      - 戴上
       - image
       - picture
       - photo
       - poster
       - wallpaper
+      - modify
+      - add
+      - change
     
   edit_video:
     name: 编辑视频

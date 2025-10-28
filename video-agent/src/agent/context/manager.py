@@ -558,6 +558,27 @@ class ContextManager:
         """
         return self.memory_store.get_context_string()
     
+    def get_last_generated_media(self, media_type: str = "image") -> Optional[str]:
+        """
+        获取最近一次生成的媒体URL（图片或视频）
+        
+        Args:
+            media_type: 媒体类型 "image" 或 "video"
+        
+        Returns:
+            媒体URL，如果没有则返回None
+        """
+        history = self.memory_store.get_history()
+        
+        # 从最近的消息往前查找
+        for msg in reversed(history):
+            if msg.get("role") == "assistant":
+                metadata = msg.get("metadata", {})
+                if metadata.get("message_type") == media_type:
+                    return msg.get("content")
+        
+        return None
+    
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         return {

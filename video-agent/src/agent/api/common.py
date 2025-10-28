@@ -128,6 +128,30 @@ def load_betteryeah_config():
     )
 
 
+def load_image_to_video_config():
+    """
+    加载图生视频API配置
+    
+    Returns:
+        ImageToVideoConfig实例
+    """
+    from agent.tools.generate.video.betteryeah_generator import ImageToVideoConfig
+    
+    config = load_config()
+    i2v_cfg = config.get("imageToVideoAPI", {})
+    
+    if not i2v_cfg:
+        raise ValueError("图生视频API未配置")
+    
+    return ImageToVideoConfig(
+        api_url=i2v_cfg.get("apiUrl", ""),
+        access_key=i2v_cfg.get("accessKey", ""),
+        workspace_id=i2v_cfg.get("workspaceId", ""),
+        max_poll_attempts=i2v_cfg.get("maxPollAttempts", 60),
+        poll_interval=i2v_cfg.get("pollInterval", 5)
+    )
+
+
 async def execute_with_scheduler(
     session_id: str,
     user_input: str,

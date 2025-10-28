@@ -175,17 +175,26 @@ class AgentScheduler:
             video_file = kwargs.get("video_file")
             
             if image_file:
-                # 如果上传了图片，直接识别为生成图片意图
-                print(f"[调度器] 检测到图片文件，直接识别为生成图片意图")
-                intent_type = IntentType.GENERATE_IMAGE
-                confidence = 1.0
-                entities = {"description": user_input}
-                intent_result = {
-                    "intent": intent_type,
-                    "confidence": confidence,
-                    "entities": entities,
-                    "method": "file_based"
-                }
+                # 如果上传了图片，需要根据用户输入判断是图生图还是图生视频
+                print(f"[调度器] 检测到图片文件，根据用户输入判断意图（图生图 vs 图生视频）...")
+                
+                # 获取上下文历史
+                context_history = self._get_context_for_intent_recognition()
+                
+                # 调用意图识别（会优先使用规则，规则不行才用LLM）
+                intent_result = await self.intent_recognizer.recognize(user_input, context=context_history)
+                intent_type = intent_result["intent"]
+                confidence = intent_result["confidence"]
+                entities = intent_result.get("entities", {})
+                
+                # 如果识别结果不是视频或图片相关，默认为图生图
+                if intent_type not in [IntentType.GENERATE_IMAGE, IntentType.GENERATE_VIDEO]:
+                    print(f"[调度器] 意图 '{intent_type.value}' 与图片无关，默认为图生图")
+                    intent_type = IntentType.GENERATE_IMAGE
+                    intent_result["intent"] = intent_type
+                
+                print(f"[调度器] 图片文件意图识别结果: {intent_type.value}")
+                
             elif video_file:
                 # 如果上传了视频，直接识别为分析视频意图
                 print(f"[调度器] 检测到视频文件，直接识别为分析视频意图")
@@ -343,17 +352,82 @@ class AgentScheduler:
         has_websocket = False
         
         # 从实体或kwargs中提取参数
-        prompt = entities.get("description", user_input)
         aspect_ratio = entities.get("aspect_ratio", kwargs.get("aspect_ratio", "16:9"))
         duration = entities.get("duration", kwargs.get("duration", 5))
         resolution = entities.get("resolution", kwargs.get("resolution", "720p"))
         generator_type = kwargs.get("generator_type", "doubao")
         script_path = kwargs.get("script_path")
         
-        print(f"[调度器] 生成视频 - prompt: {prompt}, 宽高比: {aspect_ratio}, 时长: {duration}秒, 生成器: {generator_type}")
+        # 检查是否有参考图片（图生视频）
+        image_file = kwargs.get("image_file")
+        
+        # 首先尝试从用户输入中提取图片URL（更强大的正则）
+        import re
+        # 匹配http/https URL，支持各种特殊字符，直到遇到空格或行尾
+        url_pattern = r'https?://[^\s]+?(?:\.jpg|\.jpeg|\.png|\.gif|\.webp|\.bmp)(?:\?[^\s]*)?'
+        urls = re.findall(url_pattern, user_input, re.IGNORECASE)
+        
+        if urls:
+            # 找到图片URL
+            image_file = urls[0]
+            print(f"[调度器] ✓ 从用户输入中提取到图片URL: {image_file[:100]}...")
+            # 从用户输入中移除URL，剩余部分作为prompt
+            prompt = re.sub(url_pattern, '', user_input, flags=re.IGNORECASE).strip()
+            if not prompt:
+                prompt = "生成视频"  # 默认prompt
+            print(f"[调度器] 提取到的prompt: {prompt}")
+        elif not image_file:
+            # 没有上传图片，也没有找到URL，尝试从上下文获取最近的图片
+            last_image_url = self.context_manager.get_last_generated_media("image")
+            if last_image_url:
+                print(f"[调度器] 从上下文获取到图片，使用图生视频: {last_image_url[:100]}")
+                image_file = last_image_url
+            # 使用实体提取的描述或原始输入作为prompt
+            prompt = entities.get("description", user_input)
+        else:
+            # 有上传的图片文件（base64）
+            prompt = entities.get("description", user_input)
+        
+        # 判断是文生视频还是图生视频
+        if image_file:
+            print(f"[调度器] ==================== 图生视频 ====================")
+            print(f"[调度器] Prompt: {prompt}")
+            print(f"[调度器] 图片URL: {image_file[:100] if len(image_file) > 100 else image_file}")
+        else:
+            print(f"[调度器] ==================== 文生视频 ====================")
+            print(f"[调度器] Prompt: {prompt}")
+            print(f"[调度器] 宽高比: {aspect_ratio}, 时长: {duration}秒, 生成器: {generator_type}")
         
         
-        # 根据生成器类型选择生成器
+        # 如果有图片，使用图生视频生成器
+        if image_file:
+            print(f"[调度器] 使用图生视频生成器（BetterYeah）")
+            from agent.tools.generate.video.betteryeah_generator import ImageToVideoGenerator
+            from agent.api.common import load_image_to_video_config
+            
+            try:
+                config = load_image_to_video_config()
+                generator = ImageToVideoGenerator(config)
+                print(f"[调度器] ✓ 图生视频生成器初始化成功")
+                
+                # 调用图生视频
+                result = await generator.generate_video(
+                    prompt=prompt,
+                    image_url=image_file,
+                    session_id=self.session_id
+                )
+                
+                await generator.close()
+                return result
+                
+            except Exception as e:
+                print(f"[调度器] ✗ 图生视频生成器初始化失败: {e}")
+                return {
+                    "success": False,
+                    "message": f"图生视频生成器初始化失败: {str(e)}"
+                }
+        
+        # 根据生成器类型选择生成器（文生视频）
         if generator_type == "doubao":
             print(f"[调度器] 使用豆包生成器")
             from agent.tools.generate import DoubaoVideoGenerator, DoubaoConfig
@@ -552,6 +626,14 @@ class AgentScheduler:
         image_file = kwargs.get("image_file")
         image_filename = kwargs.get("image_filename")
         
+        # 如果没有提供图片，尝试从上下文获取最近生成的图片
+        if not image_file:
+            last_image_url = self.context_manager.get_last_generated_media("image")
+            if last_image_url:
+                print(f"[调度器] 从上下文获取到最近的图片: {last_image_url[:100]}")
+                image_file = last_image_url
+                image_filename = "context_image.jpg"
+        
         print(f"[调度器] 调试 - image_file: {image_file[:100] if image_file else None}")
         print(f"[调度器] 调试 - image_filename: {image_filename}")
         print(f"[调度器] 调试 - 所有kwargs: {list(kwargs.keys())}")
@@ -620,8 +702,12 @@ class AgentScheduler:
         reference_image = None
         if image_file:
             print(f"[调度器] 构建reference_image - image_file前100字符: {image_file[:100]}")
-            # 判断是文件路径还是base64数据
-            if image_file.startswith('file://'):
+            # 判断图片类型：HTTP URL、文件路径、data URL 或 base64数据
+            if image_file.startswith('http://') or image_file.startswith('https://'):
+                # 是HTTP URL，直接使用
+                reference_image = image_file
+                print(f"[调度器] 使用HTTP URL: {reference_image[:100]}")
+            elif image_file.startswith('file://'):
                 # 是文件路径，直接使用
                 reference_image = image_file
                 print(f"[调度器] 使用文件路径: {reference_image}")
@@ -630,9 +716,9 @@ class AgentScheduler:
                 reference_image = image_file
                 print(f"[调度器] 直接使用已有data:image格式: {reference_image[:100]}")
             else:
-                # 假设是base64编码，添加data URL前缀
+                # 假设是纯base64编码，添加data URL前缀
                 reference_image = f"data:image/jpeg;base64,{image_file}"
-                print(f"[调度器] 添加data:image前缀: {reference_image[:100]}")
+                print(f"[调度器] 纯base64，添加data:image前缀: {reference_image[:100]}")
         else:
             print(f"[调度器] 没有image_file，reference_image保持为None")
         

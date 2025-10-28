@@ -250,25 +250,30 @@ async def chat(request: ChatRequest):
 
 
 
-@router.get("/stream")
-async def chat_stream_get(
-    message: str = Query(..., description="用户消息"),
-    session_id: str = Query(default_factory=generate_session_id),
-    video_path: Optional[str] = None,
-    video_file: Optional[str] = None,
-    video_filename: Optional[str] = None,
-    image_file: Optional[str] = None,
-    image_filename: Optional[str] = None,
-    aspect_ratio: Optional[str] = "16:9",
-    duration: Optional[int] = 5,
-    resolution: Optional[str] = "720p",
-    generator_type: Optional[str] = "doubao",
-    script_path: Optional[str] = None,
-):
-    """基于 SSE 的流式对话接口（同一连接内推送事件）"""
+class StreamChatRequest(BaseModel):
+    """流式聊天请求"""
+    message: str = Field(..., description="用户消息")
+    session_id: str = Field(default_factory=generate_session_id, description="会话ID")
+    video_path: Optional[str] = Field(default=None, description="视频路径")
+    video_file: Optional[str] = Field(default=None, description="视频文件base64")
+    video_filename: Optional[str] = Field(default=None, description="视频文件名")
+    image_file: Optional[str] = Field(default=None, description="图片文件base64")
+    image_filename: Optional[str] = Field(default=None, description="图片文件名")
+    aspect_ratio: Optional[str] = Field(default="16:9", description="宽高比")
+    duration: Optional[int] = Field(default=5, description="时长")
+    resolution: Optional[str] = Field(default="720p", description="分辨率")
+    generator_type: Optional[str] = Field(default="doubao", description="生成器类型")
+    script_path: Optional[str] = Field(default=None, description="脚本路径")
+
+
+@router.post("/stream")
+async def chat_stream_post(request: StreamChatRequest):
+    """基于 SSE 的流式对话接口（POST方法，同一连接内推送事件）"""
     from fastapi.responses import StreamingResponse
 
     task_id = str(uuid.uuid4())
+    session_id = request.session_id
+    message = request.message
 
     async def event_generator():
         # 为该 session 注册一个临时连接队列
@@ -291,16 +296,16 @@ async def chat_stream_get(
             # 后台执行调度
             scheduler = get_or_create_scheduler(session_id)
             kwargs = {
-                'video_path': video_path,
-                'video_file': video_file,
-                'video_filename': video_filename,
-                'image_file': image_file,
-                'image_filename': image_filename,
-                'aspect_ratio': aspect_ratio,
-                'duration': duration,
-                'resolution': resolution,
-                'generator_type': generator_type,
-                'script_path': script_path,
+                'video_path': request.video_path,
+                'video_file': request.video_file,
+                'video_filename': request.video_filename,
+                'image_file': request.image_file,
+                'image_filename': request.image_filename,
+                'aspect_ratio': request.aspect_ratio,
+                'duration': request.duration,
+                'resolution': request.resolution,
+                'generator_type': request.generator_type,
+                'script_path': request.script_path,
             }
 
             async def process_task():

@@ -28,6 +28,15 @@ betteryeahAPI:
   workspaceId: "652606ad6b292b46387de531"
   timeout: 300
 
+# BetterYeah图生视频API配置
+imageToVideoAPI:
+  apiUrl: "https://ai-api.betteryeah.com/v1/public_api/rest_api/86029113938344339f38fd25e154f53e/execute_flow"
+  accessKey: "NjUwMmMyNWEyMzBlZTMyZjI2NmQxZmVhLDU3NzYsMTY5ODE0ODI3NDAzMQ=="
+  workspaceId: "6502c25a230ee32f266d1fea"
+  maxPollAttempts: 60  # 最多轮询次数
+  pollInterval: 5  # 轮询间隔(秒)
+  timeout: 300
+
 # 剪映视频生成API配置
 jianyingAPI:
   webId: "7537987985893295667"
